@@ -282,6 +282,43 @@ def op_grow(rng: random.Random, expr: str) -> str:
     except:
         return expr
 OPERATORS: Dict[str, Callable[[random.Random, str], str]] = {'const_drift': op_const_drift, 'swap_binop': op_swap_binop, 'wrap_unary': op_wrap_unary, 'wrap_call': op_wrap_call, 'insert_ifexp': op_insert_ifexp, 'shrink': op_shrink, 'grow': op_grow}
+PRIMITIVE_OPS = ['const_drift', 'swap_binop', 'wrap_unary', 'wrap_call', 'shrink', 'grow']
+OPERATORS_LIB: Dict[str, Dict] = {'synth_drift_then_grow': {'steps': ['const_drift', 'grow'], 'score': 0.0}, 'synth_shrink_wrap': {'steps': ['shrink', 'wrap_call'], 'score': 0.0}, 'synth_double_drift': {'steps': ['const_drift', 'const_drift'], 'score': 0.0}}
+
+def apply_synthesized_op(rng: random.Random, expr: str, steps: List[str]) -> str:
+    """Apply a sequence of primitive operators to create a compound mutation."""
+    result = expr
+    for step in steps:
+        if step in OPERATORS:
+            result = OPERATORS[step](rng, result)
+    return result
+
+def synthesize_new_operator(rng: random.Random) -> Tuple[str, Dict]:
+    """Runtime synthesis: create a NEW operator by combining primitives."""
+    n_steps = rng.randint(2, 4)
+    steps = [rng.choice(PRIMITIVE_OPS) for _ in range(n_steps)]
+    name = f"synth_{sha256(''.join(steps) + str(time.time()))[:8]}"
+    return (name, {'steps': steps, 'score': 0.0})
+
+def update_operators_lib(op_name: str, delta_score: float):
+    """Update operator library scores based on performance."""
+    if op_name in OPERATORS_LIB:
+        OPERATORS_LIB[op_name]['score'] += delta_score
+
+def maybe_evolve_operators_lib(rng: random.Random, threshold: int=10):
+    """Evolve the operator library: remove worst, add new synthesized ones."""
+    if len(OPERATORS_LIB) < 3:
+        name, spec = synthesize_new_operator(rng)
+        OPERATORS_LIB[name] = spec
+        return name
+    sorted_ops = sorted(OPERATORS_LIB.items(), key=lambda x: x[1].get('score', 0))
+    worst_name, worst_spec = sorted_ops[0]
+    if worst_spec.get('score', 0) < -threshold and len(OPERATORS_LIB) > 3:
+        del OPERATORS_LIB[worst_name]
+        name, spec = synthesize_new_operator(rng)
+        OPERATORS_LIB[name] = spec
+        return name
+    return None
 
 def crossover(rng: random.Random, a: str, b: str) -> str:
     ta = re.findall('\\w+|[+\\-*/().]|[\\d.]+', a)
@@ -369,7 +406,7 @@ class FunctionLibrary:
 @dataclass
 class MetaState:
     op_weights: Dict[str, float] = field(default_factory=lambda: {k: 1.0 for k in OPERATORS})
-    mutation_rate: float = 0.6224
+    mutation_rate: float = 0.5724
     crossover_rate: float = 0.2
     complexity_lambda: float = 0.0001
     epsilon_explore: float = 0.15
@@ -436,12 +473,19 @@ class Universe:
                 new_expr = crossover(rng, parent.expr, other.expr)
                 op_tag = 'crossover'
             elif rng.random() < self.meta.mutation_rate:
-                op = self.meta.sample_op(rng)
-                if op in OPERATORS:
-                    new_expr = OPERATORS[op](rng, parent.expr)
+                use_synth = rng.random() < 0.3 and OPERATORS_LIB
+                if use_synth:
+                    synth_name = rng.choice(list(OPERATORS_LIB.keys()))
+                    steps = OPERATORS_LIB[synth_name].get('steps', [])
+                    new_expr = apply_synthesized_op(rng, parent.expr, steps)
+                    op_tag = f'synth:{synth_name}'
                 else:
-                    new_expr = parent.expr
-                op_tag = f'mut:{op}'
+                    op = self.meta.sample_op(rng)
+                    if op in OPERATORS:
+                        new_expr = OPERATORS[op](rng, parent.expr)
+                    else:
+                        new_expr = parent.expr
+                    op_tag = f'mut:{op}'
             else:
                 new_expr = parent.expr
                 op_tag = 'copy'
@@ -450,6 +494,8 @@ class Universe:
                 op_tag += f'|lib:{used}'
             children.append(Genome(expr=new_expr, parents=[parent.gid], op_tag=op_tag))
         self.pool = elites + children
+        if rng.random() < 0.02:
+            maybe_evolve_operators_lib(rng)
         if rng.random() < 0.05:
             self.library.maybe_adopt(rng, scored[0][0].expr)
         best_g, best_res = scored[0]
@@ -614,36 +660,20 @@ def propose_patches(gs: GlobalState, levels: List[int]) -> List[PatchPlan]:
                 ok, new_src = _patch_add_operator(src, name, code)
                 if ok:
                     plans.append(PatchPlan(4, sha256(name)[:8], f'L4: Add {name}', 'Operator synthesis', new_src, unified_diff(src, new_src, 'script.py')))
-    # L5: Meta-logic modification - modify the patching/evolution logic itself
     if 5 in levels:
-        # Modify elite_k ratio (selection pressure)
-        elite_mods = [
-            ('max(4, pop_size // 10)', 'max(4, pop_size // 8)'),
-            ('max(4, pop_size // 8)', 'max(4, pop_size // 12)'),
-            ('max(4, pop_size // 12)', 'max(4, pop_size // 10)'),
-        ]
+        elite_mods = [('max(4, pop_size // 10)', 'max(4, pop_size // 8)'), ('max(4, pop_size // 8)', 'max(4, pop_size // 12)'), ('max(4, pop_size // 12)', 'max(4, pop_size // 10)')]
         for old_pat, new_pat in elite_mods:
             if old_pat in src:
                 new_src = src.replace(old_pat, new_pat, 1)
                 plans.append(PatchPlan(5, sha256(new_pat)[:8], f'L5: elite_k ratio change', 'Meta: selection pressure', new_src, unified_diff(src, new_src, 'script.py')))
                 break
-        # Modify stuck_counter threshold
-        stuck_mods = [
-            ('self.stuck_counter > 20', 'self.stuck_counter > 15'),
-            ('self.stuck_counter > 15', 'self.stuck_counter > 25'),
-            ('self.stuck_counter > 25', 'self.stuck_counter > 20'),
-        ]
+        stuck_mods = [('self.stuck_counter > 20', 'self.stuck_counter > 15'), ('self.stuck_counter > 15', 'self.stuck_counter > 25'), ('self.stuck_counter > 25', 'self.stuck_counter > 20')]
         for old_pat, new_pat in stuck_mods:
             if old_pat in src:
                 new_src = src.replace(old_pat, new_pat, 1)
                 plans.append(PatchPlan(5, sha256(new_pat)[:8], f'L5: stuck threshold', 'Meta: stagnation detection', new_src, unified_diff(src, new_src, 'script.py')))
                 break
-        # Modify candidate count for patch evaluation
-        cand_mods = [
-            ("plans[:8]", "plans[:10]"),
-            ("plans[:10]", "plans[:6]"),
-            ("plans[:6]", "plans[:8]"),
-        ]
+        cand_mods = [('plans[:8]', 'plans[:10]'), ('plans[:10]', 'plans[:6]'), ('plans[:6]', 'plans[:8]')]
         for old_pat, new_pat in cand_mods:
             if old_pat in src:
                 new_src = src.replace(old_pat, new_pat)
@@ -685,7 +715,7 @@ def run_deep_autopatch(levels: List[int], candidates: int=4, apply: bool=False) 
             score = probe_run(tmp)
             improved = score < baseline - 1e-06
             results.append({'level': p.level, 'id': p.patch_id, 'title': p.title, 'score': score, 'improved': improved})
-            print(f"[L{p.level}] {p.patch_id}: {p.title} -> {score:.4f} {'OK' if improved else 'FAIL'}")
+            print(f"[L{p.level}] {p.patch_id}: {p.title} -> {score:.4f} {('OK' if improved else 'FAIL')}")
             if improved and score < best_score:
                 best_score, best_plan = (score, p)
         finally:
