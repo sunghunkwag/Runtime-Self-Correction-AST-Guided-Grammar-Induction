@@ -48,7 +48,19 @@ def write_json(p: Path, obj: Any, indent: int=2):
 
 def unified_diff(old: str, new: str, name: str) -> str:
     return ''.join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile=name, tofile=name))
-SAFE_FUNCS: Dict[str, Callable] = {'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 'exp': math.exp, 'tanh': math.tanh, 'abs': abs, 'sqrt': lambda x: math.sqrt(abs(x) + 1e-12), 'log': lambda x: math.log(abs(x) + 1e-12), 'pow2': lambda x: x * x, 'sigmoid': lambda x: 1.0 / (1.0 + math.exp(-clamp(x, -500, 500)))}
+SAFE_FUNCS: Dict[str, Callable] = {
+    'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 
+    'exp': math.exp, 'tanh': math.tanh, 'abs': abs, 
+    'sqrt': lambda x: math.sqrt(abs(x) + 1e-12), 
+    'log': lambda x: math.log(abs(x) + 1e-12), 
+    'pow2': lambda x: x * x, 
+    'sigmoid': lambda x: 1.0 / (1.0 + math.exp(-clamp(x, -500, 500))),
+    # Code Grafting Tools
+    'gamma': lambda x: math.gamma(abs(x) + 1e-9) if abs(x) < 170 else float('inf'), # Limit to avoid overflow
+    'erf': math.erf,
+    'ceil': math.ceil, 'floor': math.floor,
+    'sign': lambda x: math.copysign(1.0, x)
+}
 SAFE_BUILTINS = {'abs': abs, 'min': min, 'max': max, 'float': float, 'int': int}
 SAFE_VARS = {'x'}
 
@@ -281,8 +293,28 @@ def op_grow(rng: random.Random, expr: str) -> str:
         return new if ok else expr
     except:
         return expr
-OPERATORS: Dict[str, Callable[[random.Random, str], str]] = {'const_drift': op_const_drift, 'swap_binop': op_swap_binop, 'wrap_unary': op_wrap_unary, 'wrap_call': op_wrap_call, 'insert_ifexp': op_insert_ifexp, 'shrink': op_shrink, 'grow': op_grow}
-PRIMITIVE_OPS = ['const_drift', 'swap_binop', 'wrap_unary', 'wrap_call', 'shrink', 'grow']
+def op_graft_library(rng: random.Random, expr: str) -> str:
+    """Graft a library function (Gamma, Erf, etc.) into the expression."""
+    try:
+        tools = ['gamma', 'erf', 'ceil', 'floor', 'sign', 'sqrt', 'log']
+        tool = rng.choice(tools)
+        # Wrap a random node with the tool
+        tree = ast.parse(expr, mode='eval').body
+        sub = _pick_node(rng, tree)
+        call = ast.Call(func=ast.Name(id=tool, ctx=ast.Load()), args=[sub], keywords=[])
+        new = _to_src(call)
+        ok, _ = validate_expr(new)
+        return new if ok else expr
+    except:
+        return expr
+
+OPERATORS: Dict[str, Callable[[random.Random, str], str]] = {
+    'const_drift': op_const_drift, 'swap_binop': op_swap_binop, 
+    'wrap_unary': op_wrap_unary, 'wrap_call': op_wrap_call, 
+    'insert_ifexp': op_insert_ifexp, 'shrink': op_shrink, 'grow': op_grow,
+    'graft_lib': op_graft_library
+}
+PRIMITIVE_OPS = ['const_drift', 'swap_binop', 'wrap_unary', 'wrap_call', 'shrink', 'grow', 'graft_lib']
 OPERATORS_LIB: Dict[str, Dict] = {'synth_drift_then_grow': {'steps': ['const_drift', 'grow'], 'score': 0.0}, 'synth_shrink_wrap': {'steps': ['shrink', 'wrap_call'], 'score': 0.0}, 'synth_double_drift': {'steps': ['const_drift', 'const_drift'], 'score': 0.0}}
 
 def apply_synthesized_op(rng: random.Random, expr: str, steps: List[str]) -> str:
@@ -300,56 +332,173 @@ def synthesize_new_operator(rng: random.Random) -> Tuple[str, Dict]:
     name = f"synth_{sha256(''.join(steps) + str(time.time()))[:8]}"
     return (name, {'steps': steps, 'score': 0.0})
 
+# =============================================================================
+# SURROGATE MODEL (RSI Intuition)
+# Predicts expression performance to save evaluation costs
+# =============================================================================
+
+class SurrogateModel:
+    def __init__(self, k: int = 5):
+        self.k = k
+        self.memory: List[Tuple[List[float], float]] = []  # (features, score)
+        
+    def _extract_features(self, expr: str) -> List[float]:
+        """Extract lightweight features from expression string."""
+        return [
+            len(expr),
+            expr.count('+'),
+            expr.count('-'),
+            expr.count('*'),
+            expr.count('/'),
+            expr.count('sin'),
+            expr.count('cos'),
+            expr.count('tanh'),
+            expr.count('(')  # Rough proxy for depth/complexity
+        ]
+        
+    def train(self, history: List[Dict]):
+        """Train model on history (Just storing features for KNN)."""
+        # Keep only recent valid entries
+        self.memory = []
+        for h in history[-200:]:  # Limit memory size
+            if 'expr' in h and 'score' in h and isinstance(h['score'], (int, float)):
+                 feat = self._extract_features(h['expr'])
+                 self.memory.append((feat, float(h['score'])))
+                 
+    def predict(self, expr: str) -> float:
+        """Predict score using weighted KNN."""
+        if not self.memory:
+            return 0.0
+            
+        target = self._extract_features(expr)
+        
+        # Calculate distances
+        dists = []
+        for feat, score in self.memory:
+            # Euclidean distance approximation
+            d = sum((f1 - f2) ** 2 for f1, f2 in zip(target, feat)) ** 0.5
+            dists.append((d, score))
+            
+        # Get k nearest
+        dists.sort(key=lambda x: x[0])
+        nearest = dists[:self.k]
+        
+        # Weighted average
+        total_w = 0.0
+        weighted_score = 0.0
+        for d, s in nearest:
+            w = 1.0 / (d + 1e-6)
+            weighted_score += s * w
+            total_w += w
+            
+        return weighted_score / total_w if total_w > 0 else 0.0
+
+# Initialize global surrogate
+SURROGATE = SurrogateModel()
+
 def update_operators_lib(op_name: str, delta_score: float):
     """Update operator library scores based on performance."""
     if op_name in OPERATORS_LIB:
         OPERATORS_LIB[op_name]['score'] += delta_score
 
+# =============================================================================
+# MAP-ELITES (Diversity Archive)
+# Preserves diverse solutions across feature dimensions (Complexity x Depth)
+# =============================================================================
+
+class MAPElitesArchive:
+    def __init__(self):
+        # Grid: (len_bin, depth_bin) -> (score, Genome)
+        self.grid: Dict[Tuple[int, int], Tuple[float, Genome]] = {}
+        
+    def _features(self, expr: str) -> Tuple[int, int]:
+        """Map expression to feature bin coordinates."""
+        # Dim 1: Complexity (Length): bins of 10 chars
+        l = len(expr)
+        l_bin = min(20, l // 10) 
+        
+        # Dim 2: Depth (nesting): bins of 1
+        d = 0
+        curr = 0
+        for c in expr:
+            if c == '(': curr += 1
+            elif c == ')': curr -= 1
+            d = max(d, curr)
+        d_bin = min(10, d)
+        
+        return (l_bin, d_bin)
+        
+    def add(self, genome: Genome, score: float):
+        """Add genome to grid if it's the best in its cell."""
+        feat = self._features(genome.expr)
+        # If cell empty or new score is better (lower is better in regression usually, but let's check score direction)
+        # In this system, lower score is better (MSE/RMSE).
+        if feat not in self.grid or score < self.grid[feat][0]:
+            self.grid[feat] = (score, genome)
+            
+    def sample(self, rng: random.Random) -> Optional[Genome]:
+        """Return a random elite from the grid."""
+        if not self.grid:
+            return None
+        return rng.choice(list(self.grid.values()))[1]
+        
+    def snapshot(self) -> Dict:
+        return {'grid_size': len(self.grid), 'entries': [(list(k), v[0], asdict(v[1])) for k, v in self.grid.items()]}
+
+    @staticmethod
+    def from_snapshot(s: Dict) -> 'MAPElitesArchive':
+        ma = MAPElitesArchive()
+        for k, score, g_dict in s.get('entries', []):
+            ma.grid[tuple(k)] = (score, Genome(**g_dict))
+        return ma
+
+# Initialize global MAP-Elites
+MAP_ELITES = MAPElitesArchive()
+
+def save_map_elites(path: Path):
+    """Save MAP-Elites grid to JSON."""
+    path.write_text(json.dumps(MAP_ELITES.snapshot(), indent=2), encoding='utf-8')
+
+def load_map_elites(path: Path):
+    """Load MAP-Elites grid from JSON."""
+    if path.exists():
+        global MAP_ELITES
+        try:
+            MAP_ELITES = MAPElitesArchive.from_snapshot(json.loads(path.read_text(encoding='utf-8')))
+        except:
+            pass
+
 def evolve_operator_meta(rng: random.Random) -> Tuple[str, Dict]:
     """Evolve a new operator by recombining existing high-performing ones (Meta-GP)."""
-    # Filter for good parents (score > -5)
     candidates = [v for k, v in OPERATORS_LIB.items() if v.get('score', 0) > -5.0]
     if len(candidates) < 2:
         return synthesize_new_operator(rng)
-    
-    # Tournament selection
     p1 = rng.choice(candidates)['steps']
     p2 = rng.choice(candidates)['steps']
-    
-    # Crossover point
     cut = rng.randint(0, min(len(p1), len(p2)))
     child_steps = p1[:cut] + p2[cut:]
-    
-    # Mutation
     if rng.random() < 0.5:
         mut_type = rng.choice(['mod', 'add', 'del'])
         if mut_type == 'mod' and child_steps:
-            child_steps[rng.randint(0, len(child_steps)-1)] = rng.choice(PRIMITIVE_OPS)
+            child_steps[rng.randint(0, len(child_steps) - 1)] = rng.choice(PRIMITIVE_OPS)
         elif mut_type == 'add':
             child_steps.insert(rng.randint(0, len(child_steps)), rng.choice(PRIMITIVE_OPS))
         elif mut_type == 'del' and len(child_steps) > 1:
-            child_steps.pop(rng.randint(0, len(child_steps)-1))
-            
-    # Constraints
-    child_steps = child_steps[:6] # Max length
+            child_steps.pop(rng.randint(0, len(child_steps) - 1))
+    child_steps = child_steps[:6]
     if not child_steps:
         child_steps = [rng.choice(PRIMITIVE_OPS)]
-        
     name = f"evo_{sha256(''.join(child_steps) + str(time.time()))[:8]}"
-    return name, {'steps': child_steps, 'score': 0.0}
+    return (name, {'steps': child_steps, 'score': 0.0})
 
 def maybe_evolve_operators_lib(rng: random.Random, threshold: int=10):
     """Evolve the operator library: remove worst, add evolved ones."""
-    # 1. Selection pressure: Remove worst
     sorted_ops = sorted(OPERATORS_LIB.items(), key=lambda x: x[1].get('score', 0))
     if len(OPERATORS_LIB) > 3:
         worst_name, worst_spec = sorted_ops[0]
         if worst_spec.get('score', 0) < -threshold:
             del OPERATORS_LIB[worst_name]
-            
-    # 2. Reproduction: Add new operator (Synthesis or Evolution)
-    if len(OPERATORS_LIB) < 8: # Cap library size
-        # 70% Evolution (Exploitation), 30% Synthesis (Exploration)
+    if len(OPERATORS_LIB) < 8:
         if rng.random() < 0.7 and len(OPERATORS_LIB) >= 2:
             name, spec = evolve_operator_meta(rng)
         else:
@@ -360,17 +509,16 @@ def maybe_evolve_operators_lib(rng: random.Random, threshold: int=10):
 
 def _rewrite_operators_block(src: str, new_lib: Dict) -> str:
     """Rewrite OPERATORS_LIB in source code with learned operators."""
-    pattern = r'(# @@OPERATORS_LIB_START@@\s*\nOPERATORS_LIB:\s*Dict\[str,\s*Dict\]\s*=\s*)(\{[^}]*\})(\s*\n# @@OPERATORS_LIB_END@@)'
+    pattern = '(# @@OPERATORS_LIB_START@@\\s*\\nOPERATORS_LIB:\\s*Dict\\[str,\\s*Dict\\]\\s*=\\s*)(\\{[^}]*\\})(\\s*\\n# @@OPERATORS_LIB_END@@)'
     match = re.search(pattern, src, flags=re.DOTALL)
     if not match:
         return src
-    prefix, _, suffix = match.group(1), match.group(2), match.group(3)
-    # Format new library dict
-    lines = ["{"]
+    prefix, _, suffix = (match.group(1), match.group(2), match.group(3))
+    lines = ['{']
     for name, spec in new_lib.items():
         lines.append(f'    "{name}": {json.dumps(spec)},')
-    lines.append("}")
-    new_dict = "\n".join(lines)
+    lines.append('}')
+    new_dict = '\n'.join(lines)
     return src[:match.start()] + prefix + new_dict + suffix + src[match.end():]
 
 def save_operators_lib(path: Path):
@@ -385,7 +533,6 @@ def load_operators_lib(path: Path):
             OPERATORS_LIB.update(json.loads(path.read_text(encoding='utf-8')))
         except:
             pass
-
 
 def crossover(rng: random.Random, a: str, b: str) -> str:
     ta = re.findall('\\w+|[+\\-*/().]|[\\d.]+', a)
@@ -473,7 +620,7 @@ class FunctionLibrary:
 @dataclass
 class MetaState:
     op_weights: Dict[str, float] = field(default_factory=lambda: {k: 1.0 for k in OPERATORS})
-    mutation_rate: float = 0.5724
+    mutation_rate: float = 0.5859
     crossover_rate: float = 0.2
     complexity_lambda: float = 0.0001
     epsilon_explore: float = 0.15
@@ -530,11 +677,22 @@ class Universe:
             self.pool = [seed_genome(rng) for _ in range(pop_size)]
             return {'gen': gen, 'accepted': False, 'reason': 'reseed'}
         scored.sort(key=lambda t: t[1].score)
+        
+        # Add best to MAP-Elites
+        if scored:
+            best_g, best_res = scored[0]
+            MAP_ELITES.add(best_g, best_res.score)
+
         elite_k = max(4, pop_size // 10)
         elites = [g for g, _ in scored[:elite_k]]
         children: List[Genome] = []
         for _ in range(pop_size - len(elites)):
-            parent = rng.choice(elites)
+            # Selection: Use elites or MAP-Elites for diversity
+            if rng.random() < 0.1 and MAP_ELITES.grid:
+                parent = MAP_ELITES.sample(rng) or rng.choice(elites)
+            else:
+                parent = rng.choice(elites)
+            
             if rng.random() < self.meta.crossover_rate and len(elites) > 1:
                 other = rng.choice(elites)
                 new_expr = crossover(rng, parent.expr, other.expr)
@@ -559,8 +717,18 @@ class Universe:
             new_expr, used = self.library.maybe_inject(rng, new_expr)
             if used:
                 op_tag += f'|lib:{used}'
+            
+            # RSI Intuition: Prune bad candidates using Surrogate prediction
+            # If predicted error is high (> 2.0 or > 10x best), probibalistically revert
+            if rng.random() < 0.4:
+                pred = SURROGATE.predict(new_expr)
+                if pred > max(0.5, self.best_score * 10):
+                    new_expr = parent.expr
+                    op_tag += "|pruned"
+
             children.append(Genome(expr=new_expr, parents=[parent.gid], op_tag=op_tag))
         self.pool = elites + children
+        # Maybe evolve operators lib
         if rng.random() < 0.02:
             maybe_evolve_operators_lib(rng)
         if rng.random() < 0.05:
@@ -577,6 +745,11 @@ class Universe:
         self.meta.update(op_used, self.best_score - old_score, accepted)
         log = {'gen': gen, 'accepted': accepted, 'score': self.best_score, 'hold': self.best_hold, 'stress': self.best_stress, 'expr': self.best.expr if self.best else 'none'}
         self.history.append(log)
+        
+        # Train intuition
+        if gen % 5 == 0:
+            SURROGATE.train(self.history)
+            
         return log
 
     def snapshot(self) -> Dict:
@@ -612,16 +785,16 @@ STATE_DIR = Path('.rsi_state')
 def save_state(gs: GlobalState):
     gs.updated_ms = now_ms()
     write_json(STATE_DIR / 'state.json', asdict(gs))
-    # Also save OPERATORS_LIB for persistence across restarts
     save_operators_lib(STATE_DIR / 'operators_lib.json')
+    save_map_elites(STATE_DIR / 'map_elites.json')
 
 def load_state() -> Optional[GlobalState]:
     p = STATE_DIR / 'state.json'
     if not p.exists():
         return None
     try:
-        # Also load OPERATORS_LIB if it exists
         load_operators_lib(STATE_DIR / 'operators_lib.json')
+        load_map_elites(STATE_DIR / 'map_elites.json')
         return GlobalState(**read_json(p))
     except:
         return None
@@ -725,14 +898,10 @@ def propose_patches(gs: GlobalState, levels: List[int]) -> List[PatchPlan]:
             if ok and new_src != src:
                 plans.append(PatchPlan(3, sha256(f'{name}={new_val}')[:8], f'L3: {name} -> {new_val}', 'Eval rebalancing', new_src, unified_diff(src, new_src, 'script.py')))
     if 4 in levels:
-        # TRUE L4: Persist runtime-learned OPERATORS_LIB to source code
         if OPERATORS_LIB:
             new_src = _rewrite_operators_block(src, OPERATORS_LIB)
             if new_src != src:
-                plans.append(PatchPlan(4, sha256(str(OPERATORS_LIB))[:8], 
-                    f'L4: Persist {len(OPERATORS_LIB)} learned operators', 
-                    f'Operators: {list(OPERATORS_LIB.keys())[:5]}', 
-                    new_src, unified_diff(src, new_src, 'script.py')))
+                plans.append(PatchPlan(4, sha256(str(OPERATORS_LIB))[:8], f'L4: Persist {len(OPERATORS_LIB)} learned operators', f'Operators: {list(OPERATORS_LIB.keys())[:5]}', new_src, unified_diff(src, new_src, 'script.py')))
     if 5 in levels:
         elite_mods = [('max(4, pop_size // 10)', 'max(4, pop_size // 8)'), ('max(4, pop_size // 8)', 'max(4, pop_size // 12)'), ('max(4, pop_size // 12)', 'max(4, pop_size // 10)')]
         for old_pat, new_pat in elite_mods:

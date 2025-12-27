@@ -20,17 +20,10 @@
     ],
     "score": 0.0
   },
-  "evo_42d5d8c3": {
+  "synth_48adadcd": {
     "steps": [
-      "const_drift",
-      "const_drift"
-    ],
-    "score": 0.0
-  },
-  "synth_ad024476": {
-    "steps": [
-      "wrap_call",
-      "grow"
+      "graft_lib",
+      "shrink"
     ],
     "score": 0.0
   }
