@@ -305,17 +305,55 @@ def update_operators_lib(op_name: str, delta_score: float):
     if op_name in OPERATORS_LIB:
         OPERATORS_LIB[op_name]['score'] += delta_score
 
+def evolve_operator_meta(rng: random.Random) -> Tuple[str, Dict]:
+    """Evolve a new operator by recombining existing high-performing ones (Meta-GP)."""
+    # Filter for good parents (score > -5)
+    candidates = [v for k, v in OPERATORS_LIB.items() if v.get('score', 0) > -5.0]
+    if len(candidates) < 2:
+        return synthesize_new_operator(rng)
+    
+    # Tournament selection
+    p1 = rng.choice(candidates)['steps']
+    p2 = rng.choice(candidates)['steps']
+    
+    # Crossover point
+    cut = rng.randint(0, min(len(p1), len(p2)))
+    child_steps = p1[:cut] + p2[cut:]
+    
+    # Mutation
+    if rng.random() < 0.5:
+        mut_type = rng.choice(['mod', 'add', 'del'])
+        if mut_type == 'mod' and child_steps:
+            child_steps[rng.randint(0, len(child_steps)-1)] = rng.choice(PRIMITIVE_OPS)
+        elif mut_type == 'add':
+            child_steps.insert(rng.randint(0, len(child_steps)), rng.choice(PRIMITIVE_OPS))
+        elif mut_type == 'del' and len(child_steps) > 1:
+            child_steps.pop(rng.randint(0, len(child_steps)-1))
+            
+    # Constraints
+    child_steps = child_steps[:6] # Max length
+    if not child_steps:
+        child_steps = [rng.choice(PRIMITIVE_OPS)]
+        
+    name = f"evo_{sha256(''.join(child_steps) + str(time.time()))[:8]}"
+    return name, {'steps': child_steps, 'score': 0.0}
+
 def maybe_evolve_operators_lib(rng: random.Random, threshold: int=10):
-    """Evolve the operator library: remove worst, add new synthesized ones."""
-    if len(OPERATORS_LIB) < 3:
-        name, spec = synthesize_new_operator(rng)
-        OPERATORS_LIB[name] = spec
-        return name
+    """Evolve the operator library: remove worst, add evolved ones."""
+    # 1. Selection pressure: Remove worst
     sorted_ops = sorted(OPERATORS_LIB.items(), key=lambda x: x[1].get('score', 0))
-    worst_name, worst_spec = sorted_ops[0]
-    if worst_spec.get('score', 0) < -threshold and len(OPERATORS_LIB) > 3:
-        del OPERATORS_LIB[worst_name]
-        name, spec = synthesize_new_operator(rng)
+    if len(OPERATORS_LIB) > 3:
+        worst_name, worst_spec = sorted_ops[0]
+        if worst_spec.get('score', 0) < -threshold:
+            del OPERATORS_LIB[worst_name]
+            
+    # 2. Reproduction: Add new operator (Synthesis or Evolution)
+    if len(OPERATORS_LIB) < 8: # Cap library size
+        # 70% Evolution (Exploitation), 30% Synthesis (Exploration)
+        if rng.random() < 0.7 and len(OPERATORS_LIB) >= 2:
+            name, spec = evolve_operator_meta(rng)
+        else:
+            name, spec = synthesize_new_operator(rng)
         OPERATORS_LIB[name] = spec
         return name
     return None
