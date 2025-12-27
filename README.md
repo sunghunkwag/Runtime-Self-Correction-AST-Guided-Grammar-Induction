@@ -1,4 +1,4 @@
-# Recursive Self-Improvement Engine (L2 Upgrade) 🧬
+# Recursive-Self-Improvement-Engine-BETA
 
 An autonomous AI engine capable of improving its own source code and evolutionary logic at runtime.
 
@@ -8,7 +8,7 @@ An autonomous AI engine capable of improving its own source code and evolutionar
 - **Meta-Engine**: Evolves its own learning algorithm (Selection/Crossover) ✅
 - **Infinite Loop**: Running in continuous self-improvement mode ✅
 
-## 🚀 How to Run
+##  How to Run
 
 ### Windows (Recommended)
 Double-click **`run_infinite_rsi.bat`** to start the infinite optimization loop.
@@ -32,4 +32,4 @@ python L2_UNIFIED_RSI.py rsi-loop --generations 500 --rounds 100
 - **Optimized**: 171.0 (after 3 generations)
 - **Capability**: Can generate algorithms using `while` loops and logic.
 
-*No exaggeration. Purely objective metrics.*
+
