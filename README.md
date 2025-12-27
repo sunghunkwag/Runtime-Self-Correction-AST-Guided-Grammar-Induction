@@ -3,14 +3,19 @@
 An autonomous AI engine capable of improving its own source code and evolutionary logic at runtime.
 
 ## 📌 Status
-**Current Version**: `L2_UNIFIED_RSI.py` (Meta-Logic Grade)
+**Current Version**: `L2_UNIFIED_RSI.py` (Phase 3: Co-Evolution)
 - **Turing Complete**: Evolves full Python code (Loops, Ifs, Variables) ✅
 - **Meta-Engine**: Evolves its own learning algorithm (Selection/Crossover) ✅
-- **Infinite Loop**: Running in continuous self-improvement mode ✅
+- **Co-Evolution**: Generates and solves increasing difficulties of tasks (Discriminator) ✅
 
 ##  How to Run
 
-### Command Line
+### Phase 3 Loop (Recommended)
+```powershell
+python run_phase3.py
+```
+
+### Manual Engine Test
 ```powershell
 python L2_UNIFIED_RSI.py rsi-loop --generations 500 --rounds 100
 ```
@@ -22,6 +27,7 @@ python L2_UNIFIED_RSI.py rsi-loop --generations 500 --rounds 100
 | **LGP Genome** | List of Python statements (unlike old Expression Trees) | **Verified** |
 | **CodeValidator** | AST-based security sandbox for generated code | **Verified** |
 | **EngineStrategy** | Evolveable `Selection` and `Crossover` logic | **Active** |
+| **ProblemGenerator** | Evolves new tasks to challenge the solver (Phase 3) | **Active** |
 | **MAP-Elites** | Diversity preservation grid | **Active** |
 
 ## 📊 Performance
