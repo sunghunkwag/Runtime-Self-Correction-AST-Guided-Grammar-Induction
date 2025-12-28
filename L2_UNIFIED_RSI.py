@@ -205,7 +205,10 @@ def apply_patch_safe(target_file: str, new_content: str) -> bool:
         return True
     except Exception as e:
         print(f"[TDR] Patch Validation Failed: {e}. Rolling back.")
-        shutil.move(bak, target_file)
+        if os.path.exists(bak):
+            shutil.move(bak, target_file)
+        elif os.path.exists(target_file):
+            os.remove(target_file)
         return False
 
 def safe_exec_engine(code: str, context: Dict[str, Any], timeout_steps: int=5000) -> Any:
@@ -987,6 +990,19 @@ def seed_genome(rng: random.Random) -> Genome:
     # simple start
     return Genome(statements=["return x"])
 
+def diverse_seed_genome(rng: random.Random) -> Genome:
+    """Create a more varied seed genome to escape stagnation."""
+    stmts: List[str] = []
+    for _ in range(rng.randint(0, 2)):
+        var = f"v{rng.randint(0, 3)}"
+        stmts.append(f"{var} = {_random_expr(rng)}")
+    if stmts and rng.random() < 0.6:
+        ret_var = rng.choice([s.split('=')[0].strip() for s in stmts])
+        stmts.append(f"return {ret_var}")
+    else:
+        stmts.append(f"return {_random_expr(rng)}")
+    return Genome(statements=stmts, op_tag="diversity")
+
 @dataclass
 class LearnedFunc:
     name: str
@@ -1050,7 +1066,6 @@ class FunctionLibrary:
         lib = FunctionLibrary()
         for fd in s.get('funcs', []):
             lib.funcs[fd['name']] = LearnedFunc(**fd)
-        return lib
         return lib
 
 def induce_grammar(pool: List[Genome]):
@@ -1128,41 +1143,6 @@ class MetaState:
             self.stuck_counter = 0
             self.epsilon_explore = clamp(self.epsilon_explore - 0.01, 0.05, 0.3)
 
-
-def induce_grammar(pool: List[Genome]):
-    """Phase 4: Analyze top genomes to update GRAMMAR_PROBS (EDA step)."""
-    # 1. Select Elites (Top 20%)
-    if not pool: return
-    elites = pool[:max(10, len(pool)//5)]
-    
-    # 2. Reset Counts
-    counts = {k: 0.1 for k in GRAMMAR_PROBS}
-    
-    # 3. Walk ASTs
-    for g in elites:
-        try:
-            tree = ast.parse(g.code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                    if node.func.id in counts:
-                        counts[node.func.id] += 1.0
-                    counts['call'] += 1.0
-                elif isinstance(node, ast.BinOp):
-                    counts['binop'] += 1.0
-                elif isinstance(node, ast.Name) and node.id == 'x':
-                    counts['var'] += 1.0
-                elif isinstance(node, ast.Constant):
-                    counts['const'] += 1.0
-        except:
-            pass
-            
-    # 4. Update Global
-    total = sum(counts.values())
-    if total > 0:
-        for k in counts:
-            old = GRAMMAR_PROBS.get(k, 1.0)
-            target = (counts[k] / total) * 100.0
-            GRAMMAR_PROBS[k] = 0.8 * old + 0.2 * target
 
 @dataclass
 class Universe:
@@ -1265,6 +1245,13 @@ class Universe:
         # Select top 'needed' by predicted score (ascending error)
         with_pred.sort(key=lambda x: x[1])
         selected_children = [c for c, _ in with_pred[:needed]]
+
+        # Diversity injection when stuck
+        if self.meta.stuck_counter >= 15 and selected_children:
+            diversity = min(max(1, pop_size // 6), len(selected_children))
+            selected_children = selected_children[:-diversity]
+            for _ in range(diversity):
+                selected_children.append(diverse_seed_genome(rng))
         
         self.pool = list(elites) + selected_children
         if rng.random() < 0.02:
