@@ -167,7 +167,6 @@ def safe_exec(code: str, x: float, timeout_steps: int=1000) -> float:
             
         res = env['run'](x) # [MOD] Removed float() cast for List support
         return res
-        return res
     except StepLimitExceeded:
         return float('nan')
     except Exception:
@@ -372,7 +371,9 @@ def sample_batch(rng: random.Random, t: TaskSpec) -> Batch:
         def gen_lists(k, min_len, max_len):
             data = []
             for _ in range(k):
-                l = rng.randint(int(min_len), int(max_len))
+                a = max(1, int(min_len))
+                b = max(a, int(max_len))
+                l = rng.randint(a, b)
                 data.append([rng.randint(-100, 100) for _ in range(l)])
             return data
             
