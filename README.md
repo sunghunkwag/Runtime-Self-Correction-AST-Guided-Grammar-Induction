@@ -85,27 +85,23 @@ where λ = 0.0001 (complexity penalty)
 ```
 RSI_REPO/
 ├── L2_UNIFIED_RSI.py          # Core engine (1600+ lines)
+├── test_suite.py              # Comprehensive verification (4 tests)
 ├── ARC_GYM/
 │   ├── 25d8a9c8.json         # Real ARC task (Kaggle format)
 │   └── README.md             # Dataset documentation
-├── run_infinite_rsi.bat      # Windows launcher
 └── .rsi_state/               # Runtime state persistence
 ```
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Usage
 
-### Prerequisites
-- Python 3.11+
-- Windows PowerShell (for `.bat` launcher)
-
-### Run Infinite Self-Improvement Loop
-```powershell
-.\run_infinite_rsi.bat
+### Run Test Suite
+```bash
+python test_suite.py
 ```
 
-### Single Benchmark Test
+### Single Benchmark
 ```python
 from L2_UNIFIED_RSI import TaskSpec, Universe, MetaState, FunctionLibrary
 import time
@@ -146,33 +142,6 @@ for gen in range(20):
 
 ---
 
-## 📈 Future Work
-
-- [ ] Expand ARC_GYM to 100+ official tasks
-- [ ] Pareto frontier comparison vs DreamCoder
-- [ ] Multi-objective optimization (accuracy + simplicity)
-- [ ] Neural-guided mutation (replace RNG with learned policy)
-
----
-
-## 📚 References
-
-- **ARC Challenge**: [Kaggle Competition](https://www.kaggle.com/c/abstraction-and-reasoning-challenge)
-- **EDA**: Larrañaga, P., & Lozano, J. A. (2001). *Estimation of Distribution Algorithms*
-- **Program Synthesis**: Solar-Lezama, A. (2008). *Program Synthesis by Sketching*
-
----
-
 ## 📄 License
 
-MIT License - See [LICENSE](LICENSE) file for details.
-
----
-
-## 🤝 Contributing
-
-This is a research prototype. For academic collaboration or questions:
-- Open an issue with `[RESEARCH]` tag
-- Cite this repository if using in publications
-
-**Maintainer**: Active development
+MIT License
