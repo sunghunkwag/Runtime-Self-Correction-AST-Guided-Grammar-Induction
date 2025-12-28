@@ -54,9 +54,12 @@ SAFE_FUNCS: Dict[str, Callable] = {
     'pow2': lambda x: x * x, 'sigmoid': lambda x: 1.0 / (1.0 + math.exp(-clamp(x, -500, 500))), 
     'gamma': lambda x: math.gamma(abs(x) + 1e-09) if abs(x) < 170 else float('inf'), 
     'erf': math.erf, 'ceil': math.ceil, 'floor': math.floor, 'sign': lambda x: math.copysign(1.0, x),
-    # [NEW] Phase 3 Algorithmic
     'sorted': sorted, 'reversed': reversed, 'max': max, 'min': min, 'sum': sum, 'len': len, 'list': list
 }
+# [NEW] Phase 4: Bayesian Grammar Weights (EDA-Learned)
+GRAMMAR_PROBS: Dict[str, float] = {k: 1.0 for k in SAFE_FUNCS} # Default uniform
+GRAMMAR_PROBS.update({'binop': 2.0, 'call': 1.0, 'const': 1.0, 'var': 2.0})
+
 SAFE_BUILTINS = {'abs': abs, 'min': min, 'max': max, 'float': float, 'int': int, 'len': len, 'range': range, 'list': list, 'sorted': sorted, 'reversed': reversed, 'sum': sum} # [NEW] Algorithmic Builtins
 SAFE_VARS = {'x'}
 
@@ -441,10 +444,28 @@ def _to_src(body: ast.AST) -> str:
         return 'x'
 
 def _random_expr(rng: random.Random, depth: int=0) -> str:
-    if depth > 2 or rng.random() < 0.3:
-        return rng.choice(['x', 'v0', str(rng.randint(0, 9)), str(round(rng.random(), 2))])
-    op = rng.choice(['+', '-', '*'])
-    return f"({_random_expr(rng, depth+1)} {op} {_random_expr(rng, depth+1)})"
+    # Phase 4: EDA-Guided Probabilistic Generation
+    if depth > 2:
+        return rng.choice(['x', 'v0', str(rng.randint(0, 9))])
+    
+    # Sample structure type from learned weights
+    options = ['binop', 'call', 'const', 'var']
+    weights = [GRAMMAR_PROBS.get(k, 1.0) for k in options]
+    mtype = rng.choices(options, weights=weights, k=1)[0]
+    
+    if mtype == 'binop':
+        op = rng.choice(['+', '-', '*', '/', '**'])
+        return f"({_random_expr(rng, depth+1)} {op} {_random_expr(rng, depth+1)})"
+    elif mtype == 'call':
+        # Weighted function selection
+        funcs = list(SAFE_FUNCS.keys())
+        f_weights = [GRAMMAR_PROBS.get(f, 0.5) for f in funcs]
+        fname = rng.choices(funcs, weights=f_weights, k=1)[0]
+        return f"{fname}({_random_expr(rng, depth+1)})"
+    elif mtype == 'const':
+        return f"{rng.uniform(-2, 2):.2f}"
+    else: # var
+        return rng.choice(['x', 'v0'])
 
 def op_insert_assign(rng: random.Random, stmts: List[str]) -> List[str]:
     new_stmts = stmts[:]
@@ -896,6 +917,43 @@ class FunctionLibrary:
         for fd in s.get('funcs', []):
             lib.funcs[fd['name']] = LearnedFunc(**fd)
         return lib
+        return lib
+
+def induce_grammar(pool: List[Genome]):
+    """Phase 4: Analyze top genomes to update GRAMMAR_PROBS (EDA step)."""
+    # 1. Select Elites (Top 20%)
+    if not pool: return
+    elites = pool[:max(10, len(pool)//5)]
+    
+    # 2. Reset Counts
+    counts = {k: 0.1 for k in GRAMMAR_PROBS} # Decay old beliefs slightly, keep priors
+    
+    # 3. Walk ASTs
+    for g in elites:
+        try:
+            tree = ast.parse(g.code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    if node.func.id in counts:
+                        counts[node.func.id] += 1.0
+                    counts['call'] += 1.0
+                elif isinstance(node, ast.BinOp):
+                    counts['binop'] += 1.0
+                elif isinstance(node, ast.Name) and node.id == 'x':
+                    counts['var'] += 1.0
+                elif isinstance(node, ast.Constant):
+                    counts['const'] += 1.0
+        except:
+            pass
+            
+    # 4. Normalize & Update Global
+    total = sum(counts.values())
+    if total > 0:
+        for k in counts:
+            # Learning Rate 0.2 (Moving Average)
+            old = GRAMMAR_PROBS.get(k, 1.0)
+            target = (counts[k] / total) * 100.0 # Scale up for readability
+            GRAMMAR_PROBS[k] = 0.8 * old + 0.2 * target
 
 @dataclass
 class MetaState:
@@ -935,6 +993,42 @@ class MetaState:
         else:
             self.stuck_counter = 0
             self.epsilon_explore = clamp(self.epsilon_explore - 0.01, 0.05, 0.3)
+
+
+def induce_grammar(pool: List[Genome]):
+    """Phase 4: Analyze top genomes to update GRAMMAR_PROBS (EDA step)."""
+    # 1. Select Elites (Top 20%)
+    if not pool: return
+    elites = pool[:max(10, len(pool)//5)]
+    
+    # 2. Reset Counts
+    counts = {k: 0.1 for k in GRAMMAR_PROBS}
+    
+    # 3. Walk ASTs
+    for g in elites:
+        try:
+            tree = ast.parse(g.code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    if node.func.id in counts:
+                        counts[node.func.id] += 1.0
+                    counts['call'] += 1.0
+                elif isinstance(node, ast.BinOp):
+                    counts['binop'] += 1.0
+                elif isinstance(node, ast.Name) and node.id == 'x':
+                    counts['var'] += 1.0
+                elif isinstance(node, ast.Constant):
+                    counts['const'] += 1.0
+        except:
+            pass
+            
+    # 4. Update Global
+    total = sum(counts.values())
+    if total > 0:
+        for k in counts:
+            old = GRAMMAR_PROBS.get(k, 1.0)
+            target = (counts[k] / total) * 100.0
+            GRAMMAR_PROBS[k] = 0.8 * old + 0.2 * target
 
 @dataclass
 class Universe:
@@ -1041,6 +1135,10 @@ class Universe:
         self.pool = list(elites) + selected_children
         if rng.random() < 0.02:
             maybe_evolve_operators_lib(rng)
+            
+        # [PHASE 4] EDA
+        if gen % 5 == 0:
+            induce_grammar(list(elites))
 
         best_g, best_res = scored[0]
         old_score = self.best_score
