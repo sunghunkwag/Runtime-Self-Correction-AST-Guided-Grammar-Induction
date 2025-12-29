@@ -1,31 +1,39 @@
 {
-  "version": "v1",
-  "created_ms": 0,
-  "updated_ms": 1766916598047,
-  "base_seed": 123,
+  "version": "RSI_EXT_v1",
+  "created_ms": 1766968657590,
+  "updated_ms": 1766968657591,
+  "base_seed": 49968,
   "task": {
-    "name": "test"
+    "name": "poly2",
+    "x_min": -3.0,
+    "x_max": 3.0,
+    "n_train": 96,
+    "n_hold": 96,
+    "noise": 0.01,
+    "stress_mult": 3.0,
+    "target_code": null
   },
   "universes": [
     {
       "uid": 1,
-      "seed": 123,
+      "seed": 11310,
       "meta": {
         "op_weights": {
           "insert_assign": 1.0,
           "insert_if": 1.0,
           "insert_while": 1.0,
-          "delete_stmt": 1.0,
-          "modify_line": 1.0,
-          "tweak_const": 1.0,
-          "change_binary": 1.0,
-          "list_manip": 1.0
+          "delete_stmt": 0.97,
+          "modify_line": 0.99,
+          "tweak_const": 0.95,
+          "change_binary": 0.96,
+          "list_manip": 1.0,
+          "modify_return": 1.0
         },
-        "mutation_rate": 0.5,
+        "mutation_rate": 0.95,
         "crossover_rate": 0.2141,
         "complexity_lambda": 0.0001,
-        "epsilon_explore": 0.15,
-        "stuck_counter": 0,
+        "epsilon_explore": 0.4,
+        "stuck_counter": 970,
         "strategy": {
           "selection_code": "\ndef run():\n    # Context injected: pool, scores, pop_size, rng, map_elites\n    # Returns: (elites, breeding_parents)\n    scored = sorted(zip(pool, scores), key=lambda x: x[1])\n    elite_k = max(4, pop_size // 10)\n    elites = [g for g, s in scored[:elite_k]]\n    \n    parents = []\n    n_needed = pop_size - len(elites)\n    for _ in range(n_needed):\n        # 10% chance to pick from MAP-Elites\n        if rng.random() < 0.1 and map_elites and map_elites.grid:\n             p = map_elites.sample(rng) or rng.choice(elites)\n        else:\n             p = rng.choice(elites)\n        parents.append(p)\n    return elites, parents\n",
           "crossover_code": "\ndef run():\n    # Context: p1 (stmts), p2 (stmts), rng\n    if len(p1) < 2 or len(p2) < 2: return p1\n    idx_a = rng.randint(0, len(p1))\n    idx_b = rng.randint(0, len(p2))\n    return p1[:idx_a] + p2[idx_b:]\n",
@@ -33,17 +41,2901 @@
           "gid": "default"
         }
       },
-      "best": null,
-      "best_score": 10.0,
-      "best_hold": Infinity,
-      "best_stress": Infinity,
-      "pool": [],
+      "best": {
+        "statements": [
+          "return x"
+        ],
+        "gid": "c113bd57bb7e",
+        "parents": [],
+        "op_tag": "init",
+        "birth_ms": 1766946470491
+      },
+      "best_score": 7.243995833333334,
+      "best_hold": 1.5729166666666667,
+      "best_stress": 23.052083333333332,
+      "pool": [
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9ae8c0335ebe",
+          "parents": [
+            "d0c5c784e92c"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954873822
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "4e175a55de79",
+          "parents": [
+            "fd50db2b5981"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954890899
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "645d4161b29f",
+          "parents": [
+            "9ae8c0335ebe"
+          ],
+          "op_tag": "mut:modify_line",
+          "birth_ms": 1766954890903
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "c34e3aa9a012",
+          "parents": [
+            "9ae8c0335ebe"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954890906
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "70a67b64eb41",
+          "parents": [
+            "c34e3aa9a012"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954908214
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "70a67b64eb41",
+          "parents": [
+            "9ae8c0335ebe"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954908214
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "70a67b64eb41",
+          "parents": [
+            "645d4161b29f"
+          ],
+          "op_tag": "mut:modify_line",
+          "birth_ms": 1766954908214
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "70a67b64eb41",
+          "parents": [
+            "c34e3aa9a012"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954908214
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "376c60b1d476",
+          "parents": [
+            "c34e3aa9a012"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954908217
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "376c60b1d476",
+          "parents": [
+            "fd50db2b5981"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954908217
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "376c60b1d476",
+          "parents": [
+            "c34e3aa9a012"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954908217
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "376c60b1d476",
+          "parents": [
+            "645d4161b29f"
+          ],
+          "op_tag": "synth:synth_36b25a74",
+          "birth_ms": 1766954908217
+        },
+        {
+          "statements": [
+            "if v1 < 6:",
+            "    if v1 < 6:",
+            "        v0 = 2.281034341035119",
+            "    if v0 < 9:",
+            "    return v0",
+            "    return v0"
+          ],
+          "gid": "7956e3f477b4",
+          "parents": [
+            "6545f4a71728"
+          ],
+          "op_tag": "synth:evo_f99fb754",
+          "birth_ms": 1766968643396
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5e7e416c9fcc",
+          "parents": [
+            "70a67b64eb41"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968643388
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if len(x) > 1: v1 = x[0]",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "4b2705f899eb",
+          "parents": [
+            "70a67b64eb41"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968643388
+        },
+        {
+          "statements": [
+            "v0, v1 = v1, v0",
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "d7f1edb16309",
+          "parents": [
+            "70a67b64eb41"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968643390
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "77fd0bb580da",
+          "parents": [
+            "70a67b64eb41"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968643390
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "77fd0bb580da",
+          "parents": [
+            "70a67b64eb41"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968643390
+        },
+        {
+          "statements": [
+            "v1 = sorted(x)",
+            "if v0 < 0:",
+            "    if v0 < 8:",
+            "        v0 = v0",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "86749c7f1121",
+          "parents": [
+            "472ed0e08726"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968643390
+        },
+        {
+          "statements": [
+            "v1 = -0.85",
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "4ff75d27b151",
+          "parents": [
+            "c34e3aa9a012"
+          ],
+          "op_tag": "mut:insert_assign",
+          "birth_ms": 1766968643392
+        }
+      ],
       "library": {
         "funcs": []
       },
-      "history": []
+      "history": [
+        {
+          "gen": 955,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 956,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 957,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 958,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 959,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 960,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 961,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 962,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 963,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 964,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 965,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 966,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 967,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 968,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 969,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 970,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 971,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 972,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 973,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 974,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 975,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 976,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 977,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 978,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 979,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 980,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 981,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 982,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 983,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 984,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 985,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 986,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 987,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 988,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 989,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 990,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 991,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 992,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 993,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 994,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 995,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 996,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 997,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 998,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 999,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1000,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1001,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1002,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1003,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1004,
+          "accepted": false,
+          "score": 7.243995833333334,
+          "hold": 1.5729166666666667,
+          "stress": 23.052083333333332,
+          "code": "def run(x):\n    # c113bd57bb7e\n    _steps=0\n    v0=x\n    return x"
+        }
+      ]
+    },
+    {
+      "uid": 2,
+      "seed": 21283,
+      "meta": {
+        "op_weights": {
+          "insert_assign": 1.0,
+          "insert_if": 1.0,
+          "insert_while": 1.0,
+          "delete_stmt": 1.0,
+          "modify_line": 0.98,
+          "tweak_const": 0.97,
+          "change_binary": 1.0,
+          "list_manip": 1.0,
+          "modify_return": 1.0
+        },
+        "mutation_rate": 0.95,
+        "crossover_rate": 0.2141,
+        "complexity_lambda": 0.0001,
+        "epsilon_explore": 0.4,
+        "stuck_counter": 885,
+        "strategy": {
+          "selection_code": "\ndef run():\n    # Context injected: pool, scores, pop_size, rng, map_elites\n    # Returns: (elites, breeding_parents)\n    scored = sorted(zip(pool, scores), key=lambda x: x[1])\n    elite_k = max(4, pop_size // 10)\n    elites = [g for g, s in scored[:elite_k]]\n    \n    parents = []\n    n_needed = pop_size - len(elites)\n    for _ in range(n_needed):\n        # 10% chance to pick from MAP-Elites\n        if rng.random() < 0.1 and map_elites and map_elites.grid:\n             p = map_elites.sample(rng) or rng.choice(elites)\n        else:\n             p = rng.choice(elites)\n        parents.append(p)\n    return elites, parents\n",
+          "crossover_code": "\ndef run():\n    # Context: p1 (stmts), p2 (stmts), rng\n    if len(p1) < 2 or len(p2) < 2: return p1\n    idx_a = rng.randint(0, len(p1))\n    idx_b = rng.randint(0, len(p2))\n    return p1[:idx_a] + p2[idx_b:]\n",
+          "mutation_policy_code": "\ndef run():\n    # Placeholder for mutation policy\n    return 'default'\n",
+          "gid": "default"
+        }
+      },
+      "best": {
+        "statements": [
+          "return x"
+        ],
+        "gid": "80ffcc6e7abf",
+        "parents": [],
+        "op_tag": "init",
+        "birth_ms": 1766946470492
+      },
+      "best_score": 7.325975000000001,
+      "best_hold": 1.8645833333333333,
+      "best_stress": 22.854166666666668,
+      "pool": [
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "24737b088003",
+          "parents": [
+            "472ed0e08726"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954786017
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "58e5d06fca85",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954821474
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5d4ddfecbaab",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954821485
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5d4ddfecbaab",
+          "parents": [
+            "2103bb3745f4"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954821485
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "f17cd2bbf039",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954821487
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "f17cd2bbf039",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954821487
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9fd23146696c",
+          "parents": [
+            "5d4ddfecbaab"
+          ],
+          "op_tag": "mut:modify_line",
+          "birth_ms": 1766954841145
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9fd23146696c",
+          "parents": [
+            "f0b8885ad623"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954841145
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9fd23146696c",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954841145
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9fd23146696c",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954841145
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9fd23146696c",
+          "parents": [
+            "5d4ddfecbaab"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954841145
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "e6756009edab",
+          "parents": [
+            "5d4ddfecbaab"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954841151
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "return v3",
+            "if len(x) > 4: v2 = x[0]"
+          ],
+          "gid": "7d877b5d62f5",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "synth:synth_ee11ffb2",
+          "birth_ms": 1766968648280
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if len(x) > 1: v2 = x[0]",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "0fad5ae88947",
+          "parents": [
+            "24737b088003"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968648280
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "    return v0"
+          ],
+          "gid": "56312f0f19cb",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968648282
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70"
+          ],
+          "gid": "56b0d7042113",
+          "parents": [
+            "5d4ddfecbaab"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968648284
+        },
+        {
+          "statements": [
+            "if len(x) > 1: v1 = x[0]",
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "a298fa6f00dd",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968648285
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "    return v0"
+          ],
+          "gid": "29355722b448",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968648286
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "18191cc8ae38",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968648287
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0",
+            "v1 = -1.70"
+          ],
+          "gid": "d239b49ee95f",
+          "parents": [
+            "9fd23146696c"
+          ],
+          "op_tag": "mut:insert_assign",
+          "birth_ms": 1766968648287
+        }
+      ],
+      "library": {
+        "funcs": []
+      },
+      "history": [
+        {
+          "gen": 955,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 956,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 957,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 958,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 959,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 960,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 961,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 962,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 963,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 964,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 965,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 966,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 967,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 968,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 969,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 970,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 971,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 972,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 973,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 974,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 975,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 976,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 977,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 978,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 979,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 980,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 981,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 982,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 983,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 984,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 985,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 986,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 987,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 988,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 989,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 990,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 991,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 992,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 993,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 994,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 995,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 996,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 997,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 998,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 999,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1000,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1001,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1002,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1003,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1004,
+          "accepted": false,
+          "score": 7.325975000000001,
+          "hold": 1.8645833333333333,
+          "stress": 22.854166666666668,
+          "code": "def run(x):\n    # 80ffcc6e7abf\n    _steps=0\n    v0=x\n    return x"
+        }
+      ]
+    },
+    {
+      "uid": 0,
+      "seed": 1337,
+      "meta": {
+        "op_weights": {
+          "insert_assign": 1.0,
+          "insert_if": 1.0,
+          "insert_while": 1.0,
+          "delete_stmt": 1.0,
+          "modify_line": 0.94,
+          "tweak_const": 0.99,
+          "change_binary": 0.99,
+          "list_manip": 1.0,
+          "modify_return": 1.0
+        },
+        "mutation_rate": 0.95,
+        "crossover_rate": 0.2141,
+        "complexity_lambda": 0.0001,
+        "epsilon_explore": 0.4,
+        "stuck_counter": 916,
+        "strategy": {
+          "selection_code": "\ndef run():\n    # Context injected: pool, scores, pop_size, rng, map_elites\n    # Returns: (elites, breeding_parents)\n    scored = sorted(zip(pool, scores), key=lambda x: x[1])\n    elite_k = max(4, pop_size // 10)\n    elites = [g for g, s in scored[:elite_k]]\n    \n    parents = []\n    n_needed = pop_size - len(elites)\n    for _ in range(n_needed):\n        # 10% chance to pick from MAP-Elites\n        if rng.random() < 0.1 and map_elites and map_elites.grid:\n             p = map_elites.sample(rng) or rng.choice(elites)\n        else:\n             p = rng.choice(elites)\n        parents.append(p)\n    return elites, parents\n",
+          "crossover_code": "\ndef run():\n    # Context: p1 (stmts), p2 (stmts), rng\n    if len(p1) < 2 or len(p2) < 2: return p1\n    idx_a = rng.randint(0, len(p1))\n    idx_b = rng.randint(0, len(p2))\n    return p1[:idx_a] + p2[idx_b:]\n",
+          "mutation_policy_code": "\ndef run():\n    # Placeholder for mutation policy\n    return 'default'\n",
+          "gid": "default"
+        }
+      },
+      "best": {
+        "statements": [
+          "return x"
+        ],
+        "gid": "05bccd6c2cb7",
+        "parents": [],
+        "op_tag": "init",
+        "birth_ms": 1766946470489
+      },
+      "best_score": 7.3791,
+      "best_hold": 2.0208333333333335,
+      "best_stress": 22.75,
+      "pool": [
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "b52e5114ea6a",
+          "parents": [
+            "4106a4ec861d"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954881886
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "ce8d8c8254ab",
+          "parents": [
+            "fd7e0d57fee3"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954899734
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5ca539594f6e",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954917026
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5ca539594f6e",
+          "parents": [
+            "ce8d8c8254ab"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954917026
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5ca539594f6e",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954917026
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "d73b4c6013a6",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954917036
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "d73b4c6013a6",
+          "parents": [
+            "35b57fee66e2"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954917036
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "d73b4c6013a6",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954917036
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "963f9cb94832",
+          "parents": [
+            "5ca539594f6e"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954935809
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "963f9cb94832",
+          "parents": [
+            "5ca539594f6e"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954935809
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "dc154b56857f",
+          "parents": [
+            "d73b4c6013a6"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954935811
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "dc154b56857f",
+          "parents": [
+            "d73b4c6013a6"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954935811
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "    return v0"
+          ],
+          "gid": "7ed9a1f9480f",
+          "parents": [
+            "5ca539594f6e"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968653306
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if len(x) > 2: v0 = x[0]",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "25f561c47ac7",
+          "parents": [
+            "5ca539594f6e"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968653309
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "ecdd8c66af9d",
+          "parents": [
+            "ce8d8c8254ab"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968653309
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70"
+          ],
+          "gid": "3a8d8cb480b4",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968653309
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    if v0 < 8:",
+            "        v0 = v0",
+            "if v1 < 6:",
+            "        v0 = 1.70",
+            "    if v0 < 9:",
+            "    return v0",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "4bb71e5b8d96",
+          "parents": [
+            "6db1262b5b02"
+          ],
+          "op_tag": "synth:evo_dae1020a",
+          "birth_ms": 1766968653311
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "cc1be35d0f58",
+          "parents": [
+            "9ae8c0335ebe"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968653312
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    if v0 < 8:",
+            "        v0 = v0",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0",
+            "if v0 < 4:",
+            "    if v0 < 9:",
+            "        return v0"
+          ],
+          "gid": "4535e8c49a14",
+          "parents": [
+            "6db1262b5b02"
+          ],
+          "op_tag": "synth:evo_f442268f",
+          "birth_ms": 1766968653312
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "v3 = -0.01",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "3dd1e76ce318",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "mut:insert_assign",
+          "birth_ms": 1766968653314
+        }
+      ],
+      "library": {
+        "funcs": []
+      },
+      "history": [
+        {
+          "gen": 955,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 956,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 957,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 958,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 959,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 960,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 961,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 962,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 963,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 964,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 965,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 966,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 967,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 968,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 969,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 970,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 971,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 972,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 973,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 974,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 975,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 976,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 977,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 978,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 979,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 980,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 981,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 982,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 983,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 984,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 985,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 986,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 987,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 988,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 989,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 990,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 991,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 992,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 993,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 994,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 995,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 996,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 997,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 998,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 999,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1000,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1001,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1002,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1003,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1004,
+          "accepted": false,
+          "score": 7.3791,
+          "hold": 2.0208333333333335,
+          "stress": 22.75,
+          "code": "def run(x):\n    # 05bccd6c2cb7\n    _steps=0\n    v0=x\n    return x"
+        }
+      ]
+    },
+    {
+      "uid": 3,
+      "seed": 31256,
+      "meta": {
+        "op_weights": {
+          "insert_assign": 1.0,
+          "insert_if": 1.0,
+          "insert_while": 1.0,
+          "delete_stmt": 0.95,
+          "modify_line": 0.98,
+          "tweak_const": 0.98,
+          "change_binary": 0.99,
+          "list_manip": 1.0,
+          "modify_return": 1.0
+        },
+        "mutation_rate": 0.95,
+        "crossover_rate": 0.2141,
+        "complexity_lambda": 0.0001,
+        "epsilon_explore": 0.4,
+        "stuck_counter": 852,
+        "strategy": {
+          "selection_code": "\ndef run():\n    # Context injected: pool, scores, pop_size, rng, map_elites\n    # Returns: (elites, breeding_parents)\n    scored = sorted(zip(pool, scores), key=lambda x: x[1])\n    elite_k = max(4, pop_size // 10)\n    elites = [g for g, s in scored[:elite_k]]\n    \n    parents = []\n    n_needed = pop_size - len(elites)\n    for _ in range(n_needed):\n        # 10% chance to pick from MAP-Elites\n        if rng.random() < 0.1 and map_elites and map_elites.grid:\n             p = map_elites.sample(rng) or rng.choice(elites)\n        else:\n             p = rng.choice(elites)\n        parents.append(p)\n    return elites, parents\n",
+          "crossover_code": "\ndef run():\n    # Context: p1 (stmts), p2 (stmts), rng\n    if len(p1) < 2 or len(p2) < 2: return p1\n    idx_a = rng.randint(0, len(p1))\n    idx_b = rng.randint(0, len(p2))\n    return p1[:idx_a] + p2[idx_b:]\n",
+          "mutation_policy_code": "\ndef run():\n    # Placeholder for mutation policy\n    return 'default'\n",
+          "gid": "default"
+        }
+      },
+      "best": {
+        "statements": [
+          "return x"
+        ],
+        "gid": "4b4fa42d80ff",
+        "parents": [],
+        "op_tag": "init",
+        "birth_ms": 1766946470494
+      },
+      "best_score": 7.490141666666667,
+      "best_hold": 1.5520833333333333,
+      "best_stress": 23.96875,
+      "pool": [
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "02eb9608b43b",
+          "parents": [
+            "2b86e56e9ee0"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954886425
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "5c276e40a5d9",
+          "parents": [
+            "02eb9608b43b"
+          ],
+          "op_tag": "mut:modify_line",
+          "birth_ms": 1766954903937
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "411f3ecdcbf5",
+          "parents": [
+            "02eb9608b43b"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954903945
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "93e0e6d97ee8",
+          "parents": [
+            "b52e5114ea6a"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954903947
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "93e0e6d97ee8",
+          "parents": [
+            "02eb9608b43b"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954903947
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "b22ca101e347",
+          "parents": [
+            "0bb482403c2a"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954903955
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "b22ca101e347",
+          "parents": [
+            "02eb9608b43b"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954903955
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "dfed997eb966",
+          "parents": [
+            "5c276e40a5d9"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766954921213
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "dfed997eb966",
+          "parents": [
+            "b22ca101e347"
+          ],
+          "op_tag": "copy",
+          "birth_ms": 1766954921213
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "dfed997eb966",
+          "parents": [
+            "411f3ecdcbf5"
+          ],
+          "op_tag": "mut:change_binary",
+          "birth_ms": 1766954921213
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "acfa24cda21c",
+          "parents": [
+            "b22ca101e347"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954921218
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "e74742beaf00",
+          "parents": [
+            "93e0e6d97ee8"
+          ],
+          "op_tag": "mut:tweak_const",
+          "birth_ms": 1766954921220
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "return v2",
+            "if len(x) > 3: v3 = x[0]"
+          ],
+          "gid": "6ed6030e6d69",
+          "parents": [
+            "93e0e6d97ee8"
+          ],
+          "op_tag": "synth:synth_ee11ffb2",
+          "birth_ms": 1766968657545
+        },
+        {
+          "statements": [
+            "if v1 < 9:",
+            "    if v0 < 0:",
+            "        if v0 < 8:",
+            "        v0 = v0",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "83474b8b8ce4",
+          "parents": [
+            "6db1262b5b02"
+          ],
+          "op_tag": "synth:evo_ff7ba21a",
+          "birth_ms": 1766968657545
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "c12a95a7cd06",
+          "parents": [
+            "b22ca101e347"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968657545
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "c12a95a7cd06",
+          "parents": [
+            "9ae8c0335ebe"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968657545
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "v0 = v0",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "f0a7b1e91dd6",
+          "parents": [
+            "b22ca101e347"
+          ],
+          "op_tag": "mut:modify_line",
+          "birth_ms": 1766968657545
+        },
+        {
+          "statements": [
+            "if v0 < 0:",
+            "    v0 = 1.70"
+          ],
+          "gid": "bcd4697402c2",
+          "parents": [
+            "acfa24cda21c"
+          ],
+          "op_tag": "crossover",
+          "birth_ms": 1766968657554
+        },
+        {
+          "statements": [
+            "v0, v1 = v1, v0",
+            "if v0 < 0:",
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "9e1c2b7ca21c",
+          "parents": [
+            "5c276e40a5d9"
+          ],
+          "op_tag": "mut:list_manip",
+          "birth_ms": 1766968657555
+        },
+        {
+          "statements": [
+            "    v0 = 1.70",
+            "if v0 < 9:",
+            "    return v0"
+          ],
+          "gid": "42c88a97983e",
+          "parents": [
+            "02eb9608b43b"
+          ],
+          "op_tag": "mut:delete_stmt",
+          "birth_ms": 1766968657556
+        }
+      ],
+      "library": {
+        "funcs": []
+      },
+      "history": [
+        {
+          "gen": 955,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 956,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 957,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 958,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 959,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 960,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 961,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 962,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 963,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 964,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 965,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 966,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 967,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 968,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 969,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 970,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 971,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 972,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 973,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 974,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 975,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 976,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 977,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 978,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 979,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 980,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 981,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 982,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 983,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 984,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 985,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 986,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 987,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 988,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 989,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 990,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 991,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 992,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 993,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 994,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 995,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 996,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 997,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 998,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 999,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1000,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1001,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1002,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1003,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        },
+        {
+          "gen": 1004,
+          "accepted": false,
+          "score": 7.490141666666667,
+          "hold": 1.5520833333333333,
+          "stress": 23.96875,
+          "code": "def run(x):\n    # 4b4fa42d80ff\n    _steps=0\n    v0=x\n    return x"
+        }
+      ]
     }
   ],
   "selected_uid": 1,
-  "generations_done": 10
+  "generations_done": 1005
 }

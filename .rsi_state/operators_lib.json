@@ -1,9 +1,155 @@
 {
-  "synth_e37745d4": {
+  "synth_9ecbdad6": {
     "steps": [
+      "insert_if",
+      "insert_assign"
+    ],
+    "score": 0.0
+  },
+  "synth_ee11ffb2": {
+    "steps": [
+      "change_binary",
+      "modify_return",
       "list_manip",
-      "tweak_const",
-      "modify_line"
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "synth_cb6a14eb": {
+    "steps": [
+      "modify_line",
+      "modify_return"
+    ],
+    "score": 0.0
+  },
+  "synth_77128c89": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "synth_36b25a74": {
+    "steps": [
+      "insert_assign",
+      "change_binary",
+      "delete_stmt",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_ad711c95": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_d6079f57": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_402c4cf3": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_f99fb754": {
+    "steps": [
+      "insert_if",
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_dd27e156": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_4cea39a6": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "synth_c579d8e2": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "synth_0f4d806e": {
+    "steps": [
+      "insert_assign",
+      "change_binary",
+      "delete_stmt",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_055889ce": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_96db0f6f": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_495fe711": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_54be4745": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_dae1020a": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_95d24fa0": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_f442268f": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
+    ],
+    "score": 0.0
+  },
+  "evo_ff7ba21a": {
+    "steps": [
+      "insert_if",
+      "tweak_const"
     ],
     "score": 0.0
   }

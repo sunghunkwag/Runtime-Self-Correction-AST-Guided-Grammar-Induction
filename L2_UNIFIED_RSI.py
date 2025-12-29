@@ -20,7 +20,7 @@ CLI:
 from __future__ import annotations
 import argparse, ast, dataclasses, difflib, hashlib, json, math, os, random
 import re, subprocess, sys, tempfile, time, textwrap
-import collections # [FIX] Added collections for Counter
+import collections
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Set
@@ -49,62 +49,57 @@ def write_json(p: Path, obj: Any, indent: int=2):
 
 def unified_diff(old: str, new: str, name: str) -> str:
     return ''.join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile=name, tofile=name))
-SAFE_FUNCS: Dict[str, Callable] = {
-    'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 'exp': math.exp, 'tanh': math.tanh, 
-    'abs': abs, 'sqrt': lambda x: math.sqrt(abs(x) + 1e-12), 'log': lambda x: math.log(abs(x) + 1e-12), 
-    'pow2': lambda x: x * x, 'sigmoid': lambda x: 1.0 / (1.0 + math.exp(-clamp(x, -500, 500))), 
-    'gamma': lambda x: math.gamma(abs(x) + 1e-09) if abs(x) < 170 else float('inf'), 
-    'erf': math.erf, 'ceil': math.ceil, 'floor': math.floor, 'sign': lambda x: math.copysign(1.0, x),
-    'sorted': sorted, 'reversed': reversed, 'max': max, 'min': min, 'sum': sum, 'len': len, 'list': list
-}
-# [NEW] Phase 4: Bayesian Grammar Weights (EDA-Learned)
-GRAMMAR_PROBS: Dict[str, float] = {k: 1.0 for k in SAFE_FUNCS} # Default uniform
-GRAMMAR_PROBS.update({'binop': 2.0, 'call': 15.0, 'const': 1.0, 'var': 2.0})  # [BOOST] call increased for sorting tasks
-
-SAFE_BUILTINS = {'abs': abs, 'min': min, 'max': max, 'float': float, 'int': int, 'len': len, 'range': range, 'list': list, 'sorted': sorted, 'reversed': reversed, 'sum': sum} # [NEW] Algorithmic Builtins
+SAFE_FUNCS: Dict[str, Callable] = {'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 'exp': math.exp, 'tanh': math.tanh, 'abs': abs, 'sqrt': lambda x: math.sqrt(abs(x) + 1e-12), 'log': lambda x: math.log(abs(x) + 1e-12), 'pow2': lambda x: x * x, 'sigmoid': lambda x: 1.0 / (1.0 + math.exp(-clamp(x, -500, 500))), 'gamma': lambda x: math.gamma(abs(x) + 1e-09) if abs(x) < 170 else float('inf'), 'erf': math.erf, 'ceil': math.ceil, 'floor': math.floor, 'sign': lambda x: math.copysign(1.0, x), 'sorted': sorted, 'reversed': reversed, 'max': max, 'min': min, 'sum': sum, 'len': len, 'list': list}
+GRAMMAR_PROBS: Dict[str, float] = {k: 1.0 for k in SAFE_FUNCS}
+GRAMMAR_PROBS.update({'binop': 2.0, 'call': 15.0, 'const': 1.0, 'var': 2.0})
+SAFE_BUILTINS = {'abs': abs, 'min': min, 'max': max, 'float': float, 'int': int, 'len': len, 'range': range, 'list': list, 'sorted': sorted, 'reversed': reversed, 'sum': sum}
 SAFE_VARS = {'x'}
 
-# [NEW] Phase 4: ARC-Lite DSL (Grid Primitives)
-def _g_rot90(g): return [list(r) for r in zip(*g[::-1])]
-def _g_flip(g): return g[::-1]
-def _g_inv(g): return [[1-c if c in (0,1) else c for c in r] for r in g]
-def _g_get(g, r, c): return g[r%len(g)][c%len(g[0])] if g and g[0] else 0
+def _g_rot90(g):
+    return [list(r) for r in zip(*g[::-1])]
 
-SAFE_FUNCS.update({
-    'rot90': _g_rot90, 'flip': _g_flip, 'inv': _g_inv, 'get': _g_get
-})
-# Init Grammar weights for new ops
+def _g_flip(g):
+    return g[::-1]
+
+def _g_inv(g):
+    return [[1 - c if c in (0, 1) else c for c in r] for r in g]
+
+def _g_get(g, r, c):
+    return g[r % len(g)][c % len(g[0])] if g and g[0] else 0
+SAFE_FUNCS.update({'rot90': _g_rot90, 'flip': _g_flip, 'inv': _g_inv, 'get': _g_get})
 for k in ['rot90', 'flip', 'inv', 'get']:
     GRAMMAR_PROBS[k] = 1.0
 
-class StepLimitExceeded(Exception): pass
+class StepLimitExceeded(Exception):
+    pass
 
 class StepLimitTransformer(ast.NodeTransformer):
     """Injects step counting into loops and function calls to prevent halts."""
-    def __init__(self, limit: int=5000): # [Dr.Koala] Boosted limit
+
+    def __init__(self, limit: int=5000):
         self.limit = limit
-    
+
     def visit_FunctionDef(self, node):
-        check = ast.parse(f"if _steps > {self.limit}: raise StepLimitExceeded()").body[0]
-        inc = ast.parse("_steps += 1").body[0]
+        check = ast.parse(f'if _steps > {self.limit}: raise StepLimitExceeded()').body[0]
+        inc = ast.parse('_steps += 1').body[0]
         glob = ast.Global(names=['_steps'])
         node.body.insert(0, inc)
         node.body.insert(1, check)
         node.body.insert(0, glob)
         self.generic_visit(node)
         return node
-        
+
     def visit_While(self, node):
-        check = ast.parse(f"if _steps > {self.limit}: raise StepLimitExceeded()").body[0]
-        inc = ast.parse("_steps += 1").body[0]
+        check = ast.parse(f'if _steps > {self.limit}: raise StepLimitExceeded()').body[0]
+        inc = ast.parse('_steps += 1').body[0]
         node.body.insert(0, inc)
         node.body.insert(1, check)
         self.generic_visit(node)
         return node
 
     def visit_For(self, node):
-        check = ast.parse(f"if _steps > {self.limit}: raise StepLimitExceeded()").body[0]
-        inc = ast.parse("_steps += 1").body[0]
+        check = ast.parse(f'if _steps > {self.limit}: raise StepLimitExceeded()').body[0]
+        inc = ast.parse('_steps += 1').body[0]
         node.body.insert(0, inc)
         node.body.insert(1, check)
         self.generic_visit(node)
@@ -112,23 +107,18 @@ class StepLimitTransformer(ast.NodeTransformer):
 
 class CodeValidator(ast.NodeVisitor):
     """Allow full python subset: assign, flow control, but no unsafe imports."""
-    ALLOWED = (ast.Module, ast.FunctionDef, ast.arguments, ast.arg, ast.Return,
-               ast.Assign, ast.AugAssign, ast.Name, ast.Constant, ast.Expr,
-               ast.If, ast.While, ast.For, ast.Break, ast.Continue,
-               ast.BinOp, ast.UnaryOp, ast.Compare, ast.Call, ast.List, ast.Subscript, 
-               ast.Index, ast.Load, ast.Store, ast.IfExp,
-               ast.operator, ast.boolop, ast.unaryop, ast.cmpop)
-               
+    ALLOWED = (ast.Module, ast.FunctionDef, ast.arguments, ast.arg, ast.Return, ast.Assign, ast.AugAssign, ast.Name, ast.Constant, ast.Expr, ast.If, ast.While, ast.For, ast.Break, ast.Continue, ast.BinOp, ast.UnaryOp, ast.Compare, ast.Call, ast.List, ast.Subscript, ast.Index, ast.Load, ast.Store, ast.IfExp, ast.operator, ast.boolop, ast.unaryop, ast.cmpop)
+
     def __init__(self):
-        self.ok, self.err = True, None
-        
+        self.ok, self.err = (True, None)
+
     def visit(self, node):
         if not isinstance(node, self.ALLOWED):
-            self.ok, self.err = False, f"Forbidden: {type(node).__name__}"
+            self.ok, self.err = (False, f'Forbidden: {type(node).__name__}')
             return
         if isinstance(node, ast.Name):
             if node.id.startswith('__') or node.id in ('open', 'eval', 'exec', 'compile'):
-                self.ok, self.err = False, f"Forbidden name: {node.id}"
+                self.ok, self.err = (False, f'Forbidden name: {node.id}')
                 return
         super().generic_visit(node)
 
@@ -154,19 +144,14 @@ def safe_exec(code: str, x: float, timeout_steps: int=1000) -> float:
     """Execute code with step limit. Code must define 'run(x)'."""
     try:
         tree = ast.parse(code)
-        # Injection
         transformer = StepLimitTransformer(timeout_steps)
         tree = transformer.visit(tree)
         ast.fix_missing_locations(tree)
-        
-        # Scope
         env = {'_steps': 0, 'StepLimitExceeded': StepLimitExceeded, **SAFE_FUNCS, **SAFE_BUILTINS}
         exec(compile(tree, '<lgp>', 'exec'), env)
-        
         if 'run' not in env:
             return float('nan')
-            
-        res = env['run'](x) # [MOD] Removed float() cast for List support
+        res = env['run'](x)
         return res
     except StepLimitExceeded:
         return float('nan')
@@ -176,72 +161,42 @@ def safe_exec(code: str, x: float, timeout_steps: int=1000) -> float:
 def apply_patch_safe(target_file: str, new_content: str) -> bool:
     """[NEW] Phase 5: Test-Driven Repair (TDR) - Atomic Patching"""
     import shutil
-    bak = target_file + ".bak"
+    bak = target_file + '.bak'
     try:
-        print(f"[TDR] Applying atomic patch to {target_file}...")
-        
-        # Create backup if file exists
+        print(f'[TDR] Applying atomic patch to {target_file}...')
         if os.path.exists(target_file):
             shutil.copy(target_file, bak)
-            
         with open(target_file, 'w', encoding='utf-8') as f:
             f.write(new_content)
-        
-        # 1. Syntax Check
         try:
-             ast.parse(new_content)
+            ast.parse(new_content)
         except SyntaxError as e:
-             raise ValueError(f"Syntax Error: {e}")
-             
-        # 2. Import Check (Regression)
-        # Only check if it's a python file
+            raise ValueError(f'Syntax Error: {e}')
         if target_file.endswith('.py'):
-            # Run basic import test
-            cmd = f'python -c "import sys; sys.path.append(\'.\'); import {os.path.basename(target_file)[:-3]} as m; print(m.__name__)"'
+            cmd = f'''python -c "import sys; sys.path.append('.'); import {os.path.basename(target_file)[:-3]} as m; print(m.__name__)"'''
             ret = os.system(cmd)
             if ret != 0:
-                raise RuntimeError("Import Verification Failed")
-
-        print("[TDR] Patch Verified. Commit.")
+                raise RuntimeError('Import Verification Failed')
+        print('[TDR] Patch Verified. Commit.')
         return True
     except Exception as e:
-        print(f"[TDR] Patch Validation Failed: {e}. Rolling back.")
+        print(f'[TDR] Patch Validation Failed: {e}. Rolling back.')
         shutil.move(bak, target_file)
         return False
 
 def safe_exec_engine(code: str, context: Dict[str, Any], timeout_steps: int=5000) -> Any:
     """Execute meta-engine code (selection/crossover) with safety limits."""
     try:
-        tree = ast.parse(str(code)) # Ensure code is string
-        # Injection for limits
+        tree = ast.parse(str(code))
         transformer = StepLimitTransformer(timeout_steps)
         tree = transformer.visit(tree)
         ast.fix_missing_locations(tree)
-        
-        # Scope: Allow context (pool, rng) + SAFE utils
-        env = {
-            '_steps': 0, 
-            'StepLimitExceeded': StepLimitExceeded, 
-            'random': random, # Engine needs random
-            'math': math,
-            'max': max, 'min': min, 'len': len, 'sum': sum, 'sorted': sorted, 'int': int, 'float': float, 'list': list,
-            **context
-        }
-        
+        env = {'_steps': 0, 'StepLimitExceeded': StepLimitExceeded, 'random': random, 'math': math, 'max': max, 'min': min, 'len': len, 'sum': sum, 'sorted': sorted, 'int': int, 'float': float, 'list': list, **context}
         exec(compile(tree, '<engine>', 'exec'), env)
-        
-        # Assumption: Engine code sets a variable 'result' or returns via a 'run' wrapper
-        # For simplicity, we assume engine code defines 'run(ctx)' or similar, OR we just look for 'result'
-        # Let's Standardize: Engine code should be a function body 'def run(...): ...'
         if 'run' in env:
-            # We call run() with no args as context is already in env or passed if needed
-            # But wait, selection needs arguments.
-            # Better: context IS the globals. code defines 'run'. we call 'run(**context)'? 
-            # Or just 'run()'.
-            return env['run']() 
+            return env['run']()
         return None
     except Exception as e:
-        # print(f"Engine Error: {e}")
         return None
 
 @dataclass
@@ -249,42 +204,10 @@ class EngineStrategy:
     selection_code: str
     crossover_code: str
     mutation_policy_code: str
-    gid: str = "default"
-
-DEFAULT_SELECTION_CODE = """
-def run():
-    # Context injected: pool, scores, pop_size, rng, map_elites
-    # Returns: (elites, breeding_parents)
-    scored = sorted(zip(pool, scores), key=lambda x: x[1])
-    elite_k = max(4, pop_size // 10)
-    elites = [g for g, s in scored[:elite_k]]
-    
-    parents = []
-    n_needed = pop_size - len(elites)
-    for _ in range(n_needed):
-        # 10% chance to pick from MAP-Elites
-        if rng.random() < 0.1 and map_elites and map_elites.grid:
-             p = map_elites.sample(rng) or rng.choice(elites)
-        else:
-             p = rng.choice(elites)
-        parents.append(p)
-    return elites, parents
-"""
-
-DEFAULT_CROSSOVER_CODE = """
-def run():
-    # Context: p1 (stmts), p2 (stmts), rng
-    if len(p1) < 2 or len(p2) < 2: return p1
-    idx_a = rng.randint(0, len(p1))
-    idx_b = rng.randint(0, len(p2))
-    return p1[:idx_a] + p2[idx_b:]
-"""
-
-DEFAULT_MUTATION_CODE = """
-def run():
-    # Placeholder for mutation policy
-    return 'default'
-"""
+    gid: str = 'default'
+DEFAULT_SELECTION_CODE = '\ndef run():\n    # Context injected: pool, scores, pop_size, rng, map_elites\n    # Returns: (elites, breeding_parents)\n    scored = sorted(zip(pool, scores), key=lambda x: x[1])\n    elite_k = max(4, pop_size // 10)\n    elites = [g for g, s in scored[:elite_k]]\n    \n    parents = []\n    n_needed = pop_size - len(elites)\n    for _ in range(n_needed):\n        # 10% chance to pick from MAP-Elites\n        if rng.random() < 0.1 and map_elites and map_elites.grid:\n             p = map_elites.sample(rng) or rng.choice(elites)\n        else:\n             p = rng.choice(elites)\n        parents.append(p)\n    return elites, parents\n'
+DEFAULT_CROSSOVER_CODE = '\ndef run():\n    # Context: p1 (stmts), p2 (stmts), rng\n    if len(p1) < 2 or len(p2) < 2: return p1\n    idx_a = rng.randint(0, len(p1))\n    idx_b = rng.randint(0, len(p2))\n    return p1[:idx_a] + p2[idx_b:]\n'
+DEFAULT_MUTATION_CODE = "\ndef run():\n    # Placeholder for mutation policy\n    return 'default'\n"
 
 @dataclass
 class TaskSpec:
@@ -295,43 +218,30 @@ class TaskSpec:
     n_hold: int = 96
     noise: float = 0.01
     stress_mult: float = 3.0
-    target_code: Optional[str] = None  # [NEW] Phase 3: Dynamic Target
-
-TARGET_FNS = {
-    'sort': lambda x: sorted(x),
-    'reverse': lambda x: list(reversed(x)),
-    'max': lambda x: max(x) if x else 0,
-    'filter': lambda x: [v for v in x if v > 0], # Simple filter: positive only
-    # [NEW] Phase 4: ARC Tasks
-    'arc_ident': lambda x: x,
-    'arc_rot90': lambda x: [list(r) for r in zip(*x[::-1])],
-    'arc_inv': lambda x: [[1-c if c in (0,1) else c for c in r] for r in x],
-    'poly2': lambda x: 0.7 * x * x - 0.2 * x + 0.3, 
-    'poly3': lambda x: 0.3 * x ** 3 - 0.5 * x + 0.1, 
-    'sinmix': lambda x: math.sin(x) + 0.3 * math.cos(2 * x), 
-    'absline': lambda x: abs(x) + 0.2 * x
-}
-
-# [NEW] Phase 5: Real Kaggle ARC Data (File Loader)
+    target_code: Optional[str] = None
+TARGET_FNS = {'sort': lambda x: sorted(x), 'reverse': lambda x: list(reversed(x)), 'max': lambda x: max(x) if x else 0, 'filter': lambda x: [v for v in x if v > 0], 'arc_ident': lambda x: x, 'arc_rot90': lambda x: [list(r) for r in zip(*x[::-1])], 'arc_inv': lambda x: [[1 - c if c in (0, 1) else c for c in r] for r in x], 'poly2': lambda x: 0.7 * x * x - 0.2 * x + 0.3, 'poly3': lambda x: 0.3 * x ** 3 - 0.5 * x + 0.1, 'sinmix': lambda x: math.sin(x) + 0.3 * math.cos(2 * x), 'absline': lambda x: abs(x) + 0.2 * x}
 ARC_GYM_PATH = os.path.join(os.path.dirname(__file__), 'ARC_GYM')
 
 def load_arc_task(task_id: str) -> Dict:
     """Load raw ARC JSON task."""
     fname = task_id
-    if not fname.endswith('.json'): fname += '.json'
+    if not fname.endswith('.json'):
+        fname += '.json'
     path = os.path.join(ARC_GYM_PATH, fname)
-    if not os.path.exists(path): return {}
+    if not os.path.exists(path):
+        return {}
     with open(path, 'r') as f:
         return json.load(f)
 
 def get_arc_tasks() -> List[str]:
     """Scan ARC_GYM directory for available tasks."""
-    if not os.path.exists(ARC_GYM_PATH): return []
+    if not os.path.exists(ARC_GYM_PATH):
+        return []
     return [f[:-5] for f in os.listdir(ARC_GYM_PATH) if f.endswith('.json')]
 
 @dataclass
 class Batch:
-    x_tr: List[Any] # Changed from float to Any to support Lists
+    x_tr: List[Any]
     y_tr: List[Any]
     x_ho: List[Any]
     y_ho: List[Any]
@@ -339,37 +249,27 @@ class Batch:
     y_st: List[Any]
 
 def sample_batch(rng: random.Random, t: TaskSpec) -> Batch:
-    # Phase 3: Dynamic Code Target
     if t.target_code:
         f = lambda x: safe_exec(t.target_code, x)
     elif t.name in ('sort', 'reverse', 'filter', 'max'):
         f = TARGET_FNS.get(t.name)
-        if not f: f = lambda x: sorted(x)
+        if not f:
+            f = lambda x: sorted(x)
     else:
         f = TARGET_FNS.get(t.name, lambda x: x)
-        
-    
-    # [NEW] Phase 5: Real ARC Data Loader (JSON)
-    json_data = load_arc_task(t.name.replace('arc_', '')) # Strip prefix if needed
+    json_data = load_arc_task(t.name.replace('arc_', ''))
     if json_data:
-        # Flatten train/test. Kaggle JSON keys are 'input'/'output'
         pairs = json_data.get('train', []) + json_data.get('test', [])
-        
-        x_tr, y_tr = [], []
-        # Repeat to fill batch
+        x_tr, y_tr = ([], [])
         while len(x_tr) < 20 and pairs:
-             for p in pairs:
-                 x_tr.append(p['input'])
-                 y_tr.append(p['output'])
-                 
-        if not x_tr: return None # Handle empty file
-        
-        # Simple split
+            for p in pairs:
+                x_tr.append(p['input'])
+                y_tr.append(p['output'])
+        if not x_tr:
+            return None
         return Batch(x_tr[:20], y_tr[:20], x_tr[:10], y_tr[:10], x_tr[:5], y_tr[:5])
-
     elif t.name == 'even_reverse_sort':
-        # [NEW] Complex Task: Even numbers only, reverse sorted
-        # f(x) = sorted([n for n in x if n % 2 == 0], reverse=True)
+
         def gen_lists(k, min_len, max_len):
             data = []
             for _ in range(k):
@@ -378,21 +278,16 @@ def sample_batch(rng: random.Random, t: TaskSpec) -> Batch:
                 l = rng.randint(a, b)
                 data.append([rng.randint(-100, 100) for _ in range(l)])
             return data
-            
         f = lambda x: sorted([n for n in x if n % 2 == 0], reverse=True)
-        
-        # Use x_min/x_max as Length Range
         x_tr = gen_lists(t.n_train, t.x_min, t.x_max)
-        x_ho = gen_lists(t.n_hold, t.x_min + 2, t.x_max + 2) 
+        x_ho = gen_lists(t.n_hold, t.x_min + 2, t.x_max + 2)
         x_st = gen_lists(t.n_hold, t.x_max + 5, t.x_max + 10)
-        
         y_tr = [f(x) for x in x_tr]
         y_ho = [f(x) for x in x_ho]
         y_st = [f(x) for x in x_st]
         return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st)
-
     elif t.name in ('sort', 'reverse', 'filter', 'max'):
-        # List Sorting Task
+
         def gen_lists(k, min_len, max_len):
             data = []
             for _ in range(k):
@@ -401,41 +296,30 @@ def sample_batch(rng: random.Random, t: TaskSpec) -> Batch:
                 l = rng.randint(a, b)
                 data.append([rng.randint(-100, 100) for _ in range(l)])
             return data
-            
-        # Use x_min/x_max as Length Range
         x_tr = gen_lists(t.n_train, t.x_min, t.x_max)
-        x_ho = gen_lists(t.n_hold, t.x_min + 2, t.x_max + 2) # Holdout slightly longer
-        x_st = gen_lists(t.n_hold, t.x_max + 5, t.x_max + 10) # Stress much longer
-        
-        # Ground Truth
+        x_ho = gen_lists(t.n_hold, t.x_min + 2, t.x_max + 2)
+        x_st = gen_lists(t.n_hold, t.x_max + 5, t.x_max + 10)
         y_tr = [f(x) for x in x_tr]
         y_ho = [f(x) for x in x_ho]
         y_st = [f(x) for x in x_st]
         return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st)
-
     elif t.name.startswith('arc_'):
-        # [NEW] Grid Generation for ARC
+
         def gen_grids(k, dim):
             data = []
             for _ in range(k):
-                # 3x3 to 5x5 binary grids
                 g = [[rng.randint(0, 1) for _ in range(dim)] for _ in range(dim)]
                 data.append(g)
             return data
-            
         dim = int(t.x_min) if t.x_min > 0 else 3
         x_tr = gen_grids(20, dim)
         x_ho = gen_grids(10, dim)
-        x_st = gen_grids(10, dim+1)
-        
+        x_st = gen_grids(10, dim + 1)
         y_tr = [f(x) for x in x_tr]
         y_ho = [f(x) for x in x_ho]
         y_st = [f(x) for x in x_st]
         return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st)
-
-
     else:
-        # Standard Regression
         xs = lambda n, a, b: [a + (b - a) * rng.random() for _ in range(n)]
         ys = lambda xv, n: [f(x) + rng.gauss(0, n) if n > 0 else f(x) for x in xv]
         half = 0.5 * (t.x_max - t.x_min)
@@ -454,8 +338,8 @@ class Genome:
 
     @property
     def code(self) -> str:
-        body = "\n    ".join(self.statements) if self.statements else "return x"
-        return f"def run(x):\n    # {self.gid}\n    _steps=0\n    v0=x\n    {body}"
+        body = '\n    '.join(self.statements) if self.statements else 'return x'
+        return f'def run(x):\n    # {self.gid}\n    _steps=0\n    v0=x\n    {body}'
 
     def __post_init__(self):
         if not self.gid:
@@ -472,7 +356,7 @@ class EvalResult:
     nodes: int
     score: float
     err: str = None
-SCORE_W_HOLD = 0.54
+SCORE_W_HOLD = 0.49
 SCORE_W_STRESS = 0.28
 SCORE_W_TRAIN = 0.05
 
@@ -481,34 +365,26 @@ def calc_error(p: Any, t: Any) -> float:
     if isinstance(t, (int, float)):
         if isinstance(p, (int, float)):
             return (p - t) ** 2
-        return 1e6 # Type mismatch penalty
+        return 1000000.0
     elif isinstance(t, list):
         if not isinstance(p, list):
-            return 1e6
-        # List comparison
+            return 1000000.0
         if len(p) != len(t):
-            # Penalty for length mismatch
             return 1000.0 * abs(len(p) - len(t))
-        # Element-wise error
-        return sum(calc_error(pv, tv) for pv, tv in zip(p, t))
-    return 1e6 # Unknown type penalty
+        return sum((calc_error(pv, tv) for pv, tv in zip(p, t)))
+    return 1000000.0
 
 def calc_loss_sort(p: List[Any], t: List[Any]) -> float:
     """Advanced Fitness for Sorting: Inversions + Element Matching."""
-    if not isinstance(p, list): return 1e6
-    if len(p) != len(t): return 1000.0 * abs(len(p) - len(t))
-    
-    # 1. Element Mismatch Penalty (Gradient for content)
-    # Use simple histogram match or sort-match
-    p_sorted = sorted(p) if all(isinstance(x, (int, float)) for x in p) else p
+    if not isinstance(p, list):
+        return 1000000.0
+    if len(p) != len(t):
+        return 1000.0 * abs(len(p) - len(t))
+    p_sorted = sorted(p) if all((isinstance(x, (int, float)) for x in p)) else p
     t_sorted = sorted(t)
-    content_loss = sum((a-b)**2 for a, b in zip(p_sorted, t_sorted))
-    
+    content_loss = sum(((a - b) ** 2 for a, b in zip(p_sorted, t_sorted)))
     if content_loss > 0.1:
-        return 1000.0 + content_loss # Penalize content mismatch heavily first
-        
-    # 2. Inversion Count (Gradient for order)
-    # Kendall Tau distance approximates swap distance
+        return 1000.0 + content_loss
     inversions = 0
     for i in range(len(p)):
         for j in range(i + 1, len(p)):
@@ -518,40 +394,28 @@ def calc_loss_sort(p: List[Any], t: List[Any]) -> float:
 
 def calc_heuristic_loss(p: Any, t: Any, task_name: str) -> float:
     """Specialized Fitness functions for Hard Benchmarks."""
-    # 1. Base Checks
-    if task_name == 'sort': return calc_loss_sort(p, t)
-    
+    if task_name == 'sort':
+        return calc_loss_sort(p, t)
     if isinstance(t, list):
-        if not isinstance(p, list): return 1e6
-        if len(p) != len(t): return 500.0 * abs(len(p) - len(t))
-        
-        # 2. Reverse Task
+        if not isinstance(p, list):
+            return 1000000.0
+        if len(p) != len(t):
+            return 500.0 * abs(len(p) - len(t))
         if task_name == 'reverse':
-            # Check if elements match in reverse order
-            # Actually, standard element-wise error against Target (already reversed) works fine
-            # But maybe add 'set match' bonus?
-            return sum(calc_error(pv, tv) for pv, tv in zip(p, t))
-            
-        # 3. Filter Task
+            return sum((calc_error(pv, tv) for pv, tv in zip(p, t)))
         if task_name == 'filter':
-            # Set match is crucial here, order matters less? No, order usually matters.
-            # Use standard list error
-            return sum(calc_error(pv, tv) for pv, tv in zip(p, t))
-            
-    # [NEW] Phase 4: ARC Grid Loss
+            return sum((calc_error(pv, tv) for pv, tv in zip(p, t)))
     if task_name.startswith('arc_'):
-        if not isinstance(p, list) or not p or not isinstance(p[0], list): return 1000.0
-        # Shape penalty
-        if len(p) != len(t) or len(p[0]) != len(t[0]): 
-            return 500.0 + abs(len(p)-len(t)) + abs(len(p[0])-len(t[0]))
-        # Pixel mismatch count
+        if not isinstance(p, list) or not p or (not isinstance(p[0], list)):
+            return 1000.0
+        if len(p) != len(t) or len(p[0]) != len(t[0]):
+            return 500.0 + abs(len(p) - len(t)) + abs(len(p[0]) - len(t[0]))
         err = 0
         for r in range(len(t)):
             for c in range(len(t[0])):
-                if p[r][c] != t[r][c]: err += 1
+                if p[r][c] != t[r][c]:
+                    err += 1
         return float(err)
-
-    # Default to generic recursive error
     return calc_error(p, t)
 
 def mse_exec(code: str, xs: List[Any], ys: List[Any], task_name: str='') -> Tuple[bool, float, str]:
@@ -562,17 +426,15 @@ def mse_exec(code: str, xs: List[Any], ys: List[Any], task_name: str='') -> Tupl
         total_err = 0.0
         for x, y in zip(xs, ys):
             pred = safe_exec(code, x)
-            if pred is None: return (False, float('inf'), "No return")
-            
+            if pred is None:
+                return (False, float('inf'), 'No return')
             if task_name in ('sort', 'reverse', 'max', 'filter') or task_name.startswith('arc_'):
                 total_err += calc_heuristic_loss(pred, y, task_name)
             else:
                 total_err += calc_error(pred, y)
-        
         return (True, total_err / max(1, len(xs)), None)
     except Exception as e:
-        # [Meta-Cognition] Capture Error Type for analysis
-        return (False, float('inf'), f"{type(e).__name__}: {str(e)}")
+        return (False, float('inf'), f'{type(e).__name__}: {str(e)}')
 
 def evaluate(g: Genome, b: Batch, task_name: str, lam: float=0.0001) -> EvalResult:
     code = g.code
@@ -595,68 +457,67 @@ def _to_src(body: ast.AST) -> str:
         return 'x'
 
 def _random_expr(rng: random.Random, depth: int=0) -> str:
-    # Phase 4: EDA-Guided Probabilistic Generation
     if depth > 2:
         return rng.choice(['x', 'v0', str(rng.randint(0, 9))])
-    
-    # Sample structure type from learned weights
     options = ['binop', 'call', 'const', 'var']
     weights = [GRAMMAR_PROBS.get(k, 1.0) for k in options]
     mtype = rng.choices(options, weights=weights, k=1)[0]
-    
     if mtype == 'binop':
-        op = rng.choice(['+', '-', '*', '/', '**', '%']) # [FIX] Add modulo for even/odd checks
-        return f"({_random_expr(rng, depth+1)} {op} {_random_expr(rng, depth+1)})"
+        op = rng.choice(['+', '-', '*', '/', '**', '%'])
+        return f'({_random_expr(rng, depth + 1)} {op} {_random_expr(rng, depth + 1)})'
     elif mtype == 'call':
-        # Weighted function selection
         funcs = list(SAFE_FUNCS.keys())
         f_weights = [GRAMMAR_PROBS.get(f, 0.5) for f in funcs]
         fname = rng.choices(funcs, weights=f_weights, k=1)[0]
-        return f"{fname}({_random_expr(rng, depth+1)})"
+        return f'{fname}({_random_expr(rng, depth + 1)})'
     elif mtype == 'const':
-        return f"{rng.uniform(-2, 2):.2f}"
-    else: # var
+        return f'{rng.uniform(-2, 2):.2f}'
+    else:
         return rng.choice(['x', 'v0'])
 
 def op_insert_assign(rng: random.Random, stmts: List[str]) -> List[str]:
     new_stmts = stmts[:]
     idx = rng.randint(0, len(new_stmts))
-    var = f"v{rng.randint(0, 3)}"
+    var = f'v{rng.randint(0, 3)}'
     expr = _random_expr(rng)
-    new_stmts.insert(idx, f"{var} = {expr}")
+    new_stmts.insert(idx, f'{var} = {expr}')
     return new_stmts
 
 def op_insert_if(rng: random.Random, stmts: List[str]) -> List[str]:
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    idx = rng.randint(0, len(new_stmts)-1)
-    cond = f"v{rng.randint(0, 3)} < {rng.randint(0, 10)}"
-    block = [f"    {s}" for s in new_stmts[idx:idx+2]]
-    new_stmts[idx:idx+2] = [f"if {cond}:"] + block
+    idx = rng.randint(0, len(new_stmts) - 1)
+    cond = f'v{rng.randint(0, 3)} < {rng.randint(0, 10)}'
+    block = [f'    {s}' for s in new_stmts[idx:idx + 2]]
+    new_stmts[idx:idx + 2] = [f'if {cond}:'] + block
     return new_stmts
 
 def op_insert_while(rng: random.Random, stmts: List[str]) -> List[str]:
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    idx = rng.randint(0, len(new_stmts)-1)
-    cond = f"v{rng.randint(0, 3)} < {rng.randint(0, 10)}"
-    block = [f"    {s}" for s in new_stmts[idx:idx+2]]
-    new_stmts[idx:idx+2] = [f"while {cond}:"] + block
+    idx = rng.randint(0, len(new_stmts) - 1)
+    cond = f'v{rng.randint(0, 3)} < {rng.randint(0, 10)}'
+    block = [f'    {s}' for s in new_stmts[idx:idx + 2]]
+    new_stmts[idx:idx + 2] = [f'while {cond}:'] + block
     return new_stmts
 
 def op_delete_stmt(rng: random.Random, stmts: List[str]) -> List[str]:
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    new_stmts.pop(rng.randint(0, len(new_stmts)-1))
+    new_stmts.pop(rng.randint(0, len(new_stmts) - 1))
     return new_stmts
 
 def op_modify_line(rng: random.Random, stmts: List[str]) -> List[str]:
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    idx = rng.randint(0, len(new_stmts)-1)
+    idx = rng.randint(0, len(new_stmts) - 1)
     if '=' in new_stmts[idx]:
         var = new_stmts[idx].split('=')[0].strip()
-        new_stmts[idx] = f"{var} = {_random_expr(rng)}"
+        new_stmts[idx] = f'{var} = {_random_expr(rng)}'
     return new_stmts
 
 def op_shrink(rng: random.Random, expr: str) -> str:
@@ -690,28 +551,31 @@ def op_graft_library(rng: random.Random, expr: str) -> str:
         return new if ok else expr
     except:
         return expr
+
 def op_tweak_const(rng: random.Random, stmts: List[str]) -> List[str]:
     """Micro-mutation: Tweak numerical constants."""
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    idx = rng.randint(0, len(new_stmts)-1)
-    
+    idx = rng.randint(0, len(new_stmts) - 1)
+
     def _tweak_node(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
             val = node.value
-            if isinstance(val, bool): return node
-            # Gaussian pertubation
+            if isinstance(val, bool):
+                return node
             new_val = val + rng.gauss(0, 0.1 * abs(val) + 0.01)
-            # Occasional sign flip or zeroing
-            if rng.random() < 0.05: new_val = -val
-            if rng.random() < 0.05: new_val = 0
+            if rng.random() < 0.05:
+                new_val = -val
+            if rng.random() < 0.05:
+                new_val = 0
             return ast.Constant(value=new_val)
         return node
 
     class TweakTransformer(ast.NodeTransformer):
+
         def visit_Constant(self, node):
             return _tweak_node(node)
-
     try:
         tree = ast.parse(new_stmts[idx], mode='exec')
         new_tree = TweakTransformer().visit(tree)
@@ -722,20 +586,19 @@ def op_tweak_const(rng: random.Random, stmts: List[str]) -> List[str]:
 
 def op_change_binary(rng: random.Random, stmts: List[str]) -> List[str]:
     """Swap binary operators (+, -, *, /)."""
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    idx = rng.randint(0, len(new_stmts)-1)
-    
+    idx = rng.randint(0, len(new_stmts) - 1)
     pops = [ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow]
-    
+
     class OpTransformer(ast.NodeTransformer):
+
         def visit_BinOp(self, node):
             if rng.random() < 0.5:
-                # Replace operator
                 new_op = rng.choice(pops)()
                 return ast.BinOp(left=node.left, op=new_op, right=node.right)
             return node
-
     try:
         tree = ast.parse(new_stmts[idx], mode='exec')
         new_tree = OpTransformer().visit(tree)
@@ -746,51 +609,28 @@ def op_change_binary(rng: random.Random, stmts: List[str]) -> List[str]:
 
 def op_list_manipulation(rng: random.Random, stmts: List[str]) -> List[str]:
     """Insert list operations (swaps, access)."""
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
     idx = rng.randint(0, len(new_stmts))
-    
-    ops = [
-        f"v{rng.randint(0,3)} = x[{rng.randint(0,2)}]", # Read
-        f"if len(x) > {rng.randint(1,5)}: v{rng.randint(0,3)} = x[0]", # Safe Read
-        "v0, v1 = v1, v0", # Swap
-        f"v{rng.randint(0,3)} = sorted(x)" # Cheat/Hint
-    ]
+    ops = [f'v{rng.randint(0, 3)} = x[{rng.randint(0, 2)}]', f'if len(x) > {rng.randint(1, 5)}: v{rng.randint(0, 3)} = x[0]', 'v0, v1 = v1, v0', f'v{rng.randint(0, 3)} = sorted(x)']
     new_stmts.insert(idx, rng.choice(ops))
     return new_stmts
 
 def op_modify_return(rng: random.Random, stmts: List[str]) -> List[str]:
     """Change the return statement to return a different available variable."""
-    if not stmts: return stmts
+    if not stmts:
+        return stmts
     new_stmts = stmts[:]
-    
-    # Identify active variables (simple heuristic)
     active_vars = {'x', 'v0', 'v1', 'v2', 'v3'}
-    
-    # Find return statement
     for i in range(len(new_stmts) - 1, -1, -1):
-        if new_stmts[i].strip().startswith("return "):
-            # Change return var to something else
+        if new_stmts[i].strip().startswith('return '):
             new_var = rng.choice(list(active_vars))
-            new_stmts[i] = f"return {new_var}"
+            new_stmts[i] = f'return {new_var}'
             return new_stmts
-            
-    # If no return found (rare), append one
-    new_stmts.append(f"return {rng.choice(list(active_vars))}")
+    new_stmts.append(f'return {rng.choice(list(active_vars))}')
     return new_stmts
-
-OPERATORS: Dict[str, Callable[[random.Random, List[str]], List[str]]] = {
-    'insert_assign': op_insert_assign,
-    'insert_if': op_insert_if,
-    'insert_while': op_insert_while,
-    'delete_stmt': op_delete_stmt, 
-    'modify_line': op_modify_line,
-    'tweak_const': op_tweak_const,
-    'change_binary': op_change_binary,
-    'list_manip': op_list_manipulation, # [NEW] For Sorting
-    'modify_return': op_modify_return, # [NEW] Essential for flow control
-}
-
+OPERATORS: Dict[str, Callable[[random.Random, List[str]], List[str]]] = {'insert_assign': op_insert_assign, 'insert_if': op_insert_if, 'insert_while': op_insert_while, 'delete_stmt': op_delete_stmt, 'modify_line': op_modify_line, 'tweak_const': op_tweak_const, 'change_binary': op_change_binary, 'list_manip': op_list_manipulation, 'modify_return': op_modify_return}
 PRIMITIVE_OPS = list(OPERATORS.keys())
 OPERATORS_LIB: Dict[str, Dict] = {}
 
@@ -817,21 +657,12 @@ class SurrogateModel:
 
     def _extract_features(self, code: str) -> List[float]:
         """Extract lightweight features from code string."""
-        return [
-            len(code),
-            code.count('\n'),
-            code.count('if '),
-            code.count('while '),
-            code.count('='),
-            code.count('return '),
-            code.count('(')
-        ]
+        return [len(code), code.count('\n'), code.count('if '), code.count('while '), code.count('='), code.count('return '), code.count('(')]
 
     def train(self, history: List[Dict]):
         """Train model on history."""
         self.memory = []
         for h in history[-200:]:
-            # Support both 'expr' (old) and 'code' (new) keys for transition
             src = h.get('code') or h.get('expr')
             if src and 'score' in h and isinstance(h['score'], (int, float)):
                 feat = self._extract_features(src)
@@ -870,7 +701,7 @@ class MAPElitesArchive:
     def _features(self, code: str) -> Tuple[int, int]:
         """Map code to feature bin coordinates."""
         l = len(code)
-        l_bin = min(20, l // 20) # coarser binning
+        l_bin = min(20, l // 20)
         d = code.count('\n')
         d_bin = min(10, d // 2)
         return (l_bin, d_bin)
@@ -954,47 +785,28 @@ def maybe_evolve_operators_lib(rng: random.Random, threshold: int=10):
 
 class ProblemGenerator:
     """Phase 3: Co-evolutionary Discriminator. Generates hard tasks via Parameter Curriculum."""
+
     def __init__(self):
         self.archive: List[Dict] = []
-    
+
     def evolve_task(self, rng: random.Random, current_elites: List[Genome]) -> TaskSpec:
         """Phase 3: Curriculum Learning (Parameter Evolution)."""
-        # Guaranteed Solvability: Simply increase difficulty of known solvable tasks
-        
-        
-        # 1. Curriculum Selection
-        arc_tasks = get_arc_tasks()  # Get available JSON files
+        arc_tasks = get_arc_tasks()
         base_options = ['sort', 'reverse', 'max', 'filter']
-        
-        # Prepend 'arc_' to JSON task IDs for consistency
         arc_options = [f'arc_{tid}' for tid in arc_tasks] if arc_tasks else []
-        
         options = base_options + arc_options
         base_name = rng.choice(options) if options else 'sort'
-        
-        # 2. Difficulty Parameters
         level = rng.randint(1, 3)
         mn = 3 + level
         mx = 5 + level
-        
-        # For ARC, dimensions are handled by JSON data itself
         if base_name.startswith('arc_'):
-             mn, mx = 3, 5  # Placeholder dims
-             
-        new_task = TaskSpec(
-            name=base_name,
-            n_train=64,
-            n_hold=32,
-            x_min=float(mn),
-            x_max=float(mx),
-            noise=0.0
-        )
+            mn, mx = (3, 5)
+        new_task = TaskSpec(name=base_name, n_train=64, n_hold=32, x_min=float(mn), x_max=float(mx), noise=0.0)
         return new_task
-                
+
     def _mutate_target(self, rng: random.Random, code: str) -> str:
-        return "deprecated"
-        # 3. Create TaskSpec
-        name = f"gen_task_{sha256(code)[:6]}"
+        return 'deprecated'
+        name = f'gen_task_{sha256(code)[:6]}'
         task = TaskSpec(name=name, target_code=code, x_min=-5.0, x_max=5.0)
         return task
 
@@ -1026,77 +838,68 @@ def load_operators_lib(path: Path):
             pass
 
 def crossover(rng: random.Random, a: List[str], b: List[str]) -> List[str]:
-    if len(a) < 2 or len(b) < 2: return a
+    if len(a) < 2 or len(b) < 2:
+        return a
     idx_a = rng.randint(0, len(a))
     idx_b = rng.randint(0, len(b))
     return a[:idx_a] + b[idx_b:]
 
-
-# [NEW] Meta-Cognition: Task Detective
 class TaskDetective:
+
     @staticmethod
     def detect_pattern(batch: Batch) -> Optional[str]:
         """Analyze Input/Output pairs to guess the algorithmic pattern."""
-        if not batch or not batch.x_tr: return None
-        
-        # Check first 5 examples
+        if not batch or not batch.x_tr:
+            return None
         check_set = zip(batch.x_tr[:5], batch.y_tr[:5])
-        
-        # Pattern Flags
         is_sort = is_rev = is_max = is_min = is_len = True
-        
         for x, y in check_set:
             if not isinstance(x, list) or not isinstance(y, (list, int, float)):
-                return None # Only works for list-based tasks
-                
-            # Sort Check
+                return None
             if isinstance(y, list):
-                if y != sorted(x): is_sort = False
-                if y != list(reversed(x)): is_rev = False
+                if y != sorted(x):
+                    is_sort = False
+                if y != list(reversed(x)):
+                    is_rev = False
             else:
                 is_sort = is_rev = False
-                
-            # Scalar Check
             if isinstance(y, (int, float)):
-                if not x: # empty list
-                    if y != 0: is_len = False
+                if not x:
+                    if y != 0:
+                        is_len = False
                 else:
-                    if y != len(x): is_len = False
-                    if y != max(x): is_max = False
-                    if y != min(x): is_min = False
+                    if y != len(x):
+                        is_len = False
+                    if y != max(x):
+                        is_max = False
+                    if y != min(x):
+                        is_min = False
             else:
                 is_max = is_min = is_len = False
-                
-        if is_sort: return 'HINT_SORT'
-        if is_rev: return 'HINT_REVERSE'
-        if is_max: return 'HINT_MAX'
-        if is_min: return 'HINT_MIN'
-        if is_len: return 'HINT_LEN'
-        
+        if is_sort:
+            return 'HINT_SORT'
+        if is_rev:
+            return 'HINT_REVERSE'
+        if is_max:
+            return 'HINT_MAX'
+        if is_min:
+            return 'HINT_MIN'
+        if is_len:
+            return 'HINT_LEN'
         return None
 
 def seed_genome(rng: random.Random, hint: str=None) -> Genome:
-    # [Dr.Koala] Force diverse seeds including Detective Hints
-    seeds = [
-        ["return x"], 
-        ["return sorted(x)"], 
-        ["return list(reversed(x))"], 
-        ["v0 = sorted(x)", "return v0"],
-        [f"return {_random_expr(rng, depth=0)}"]
-    ]
-    
-    # [Detective] Inject Targeted Seeds
+    seeds = [['return x'], ['return sorted(x)'], ['return list(reversed(x))'], ['v0 = sorted(x)', 'return v0'], [f'return {_random_expr(rng, depth=0)}']]
     if hint == 'HINT_SORT':
-        seeds.extend([["return sorted(x)"]] * 5) # Boost weight
+        seeds.extend([['return sorted(x)']] * 5)
     elif hint == 'HINT_REVERSE':
-        seeds.extend([["return list(reversed(x))"]] * 5)
+        seeds.extend([['return list(reversed(x))']] * 5)
     elif hint == 'HINT_MAX':
-        seeds.extend([["return max(x)"]] * 5)
+        seeds.extend([['return max(x)']] * 5)
     elif hint == 'HINT_MIN':
-        seeds.extend([["return min(x)"]] * 5)
+        seeds.extend([['return min(x)']] * 5)
     elif hint == 'HINT_LEN':
-        seeds.extend([["return len(x)"]] * 5)
-        
+        seeds.extend([['return len(x)']] * 5)
     return Genome(statements=rng.choice(seeds))
 
 @dataclass
@@ -1167,14 +970,10 @@ class FunctionLibrary:
 
 def induce_grammar(pool: List[Genome]):
     """Phase 4: Analyze top genomes to update GRAMMAR_PROBS (EDA step)."""
-    # 1. Select Elites (Top 20%)
-    if not pool: return
-    elites = pool[:max(10, len(pool)//5)]
-    
-    # 2. Reset Counts
-    counts = {k: 0.1 for k in GRAMMAR_PROBS} # Decay old beliefs slightly, keep priors
-    
-    # 3. Walk ASTs
+    if not pool:
+        return
+    elites = pool[:max(10, len(pool) // 5)]
+    counts = {k: 0.1 for k in GRAMMAR_PROBS}
     for g in elites:
         try:
             tree = ast.parse(g.code)
@@ -1191,33 +990,22 @@ def induce_grammar(pool: List[Genome]):
                     counts['const'] += 1.0
         except:
             pass
-            
-    # 4. Normalize & Update Global
     total = sum(counts.values())
     if total > 0:
         for k in counts:
-            # Learning Rate 0.2 (Moving Average)
             old = GRAMMAR_PROBS.get(k, 1.0)
-            target = (counts[k] / total) * 100.0 # Scale up for readability
+            target = counts[k] / total * 100.0
             GRAMMAR_PROBS[k] = 0.8 * old + 0.2 * target
 
 @dataclass
 class MetaState:
-    # [Dr.Koala] Boost structural mutation weights
-    op_weights: Dict[str, float] = field(default_factory=lambda: {
-        k: 5.0 if k in ('modify_return', 'insert_assign', 'list_manip') else 1.0 
-        for k in OPERATORS
-    })
+    op_weights: Dict[str, float] = field(default_factory=lambda: {k: 5.0 if k in ('modify_return', 'insert_assign', 'list_manip') else 1.0 for k in OPERATORS})
     mutation_rate: float = 0.8863
-    crossover_rate: float = 0.2141
+    crossover_rate: float = 0.1971
     complexity_lambda: float = 0.0001
-    epsilon_explore: float = 0.15
+    epsilon_explore: float = 0.4213
     stuck_counter: int = 0
-    strategy: EngineStrategy = field(default_factory=lambda: EngineStrategy(
-        selection_code=DEFAULT_SELECTION_CODE, 
-        crossover_code=DEFAULT_CROSSOVER_CODE, 
-        mutation_policy_code=DEFAULT_MUTATION_CODE
-    ))
+    strategy: EngineStrategy = field(default_factory=lambda: EngineStrategy(selection_code=DEFAULT_SELECTION_CODE, crossover_code=DEFAULT_CROSSOVER_CODE, mutation_policy_code=DEFAULT_MUTATION_CODE))
 
     def sample_op(self, rng: random.Random) -> str:
         if rng.random() < self.epsilon_explore:
@@ -1244,17 +1032,12 @@ class MetaState:
             self.stuck_counter = 0
             self.epsilon_explore = clamp(self.epsilon_explore - 0.01, 0.05, 0.3)
 
-
 def induce_grammar(pool: List[Genome]):
     """Phase 4: Analyze top genomes to update GRAMMAR_PROBS (EDA step)."""
-    # 1. Select Elites (Top 20%)
-    if not pool: return
-    elites = pool[:max(10, len(pool)//5)]
-    
-    # 2. Reset Counts
+    if not pool:
+        return
+    elites = pool[:max(10, len(pool) // 5)]
     counts = {k: 0.1 for k in GRAMMAR_PROBS}
-    
-    # 3. Walk ASTs
     for g in elites:
         try:
             tree = ast.parse(g.code)
@@ -1271,43 +1054,32 @@ def induce_grammar(pool: List[Genome]):
                     counts['const'] += 1.0
         except:
             pass
-            
-    # 4. Update Global
     total = sum(counts.values())
     if total > 0:
         for k in counts:
             old = GRAMMAR_PROBS.get(k, 1.0)
-            target = (counts[k] / total) * 100.0
+            target = counts[k] / total * 100.0
             GRAMMAR_PROBS[k] = 0.8 * old + 0.2 * target
 
-
-# [NEW] Meta-Cognition: Dynamic Error Analysis
 class MetaCognitiveEngine:
+
     @staticmethod
     def analyze_execution(results: List[Tuple[Genome, EvalResult]], meta: 'MetaState'):
         """Adjust strategy based on aggregate error patterns."""
         errors = [r.err.split(':')[0] for _, r in results if not r.ok and r.err]
-        if not errors: return
-        
+        if not errors:
+            return
         counts = collections.Counter(errors)
         total_err = len(errors)
-        
-        # 1. Type Mismatches (TypeError)
         if counts['TypeError'] > total_err * 0.3:
-            # Reduce binary ops that might cause type errors
             if 'binop' in GRAMMAR_PROBS:
                 GRAMMAR_PROBS['binop'] *= 0.5
-            # Boost variables and constants (safer)
             GRAMMAR_PROBS['var'] = GRAMMAR_PROBS.get('var', 1.0) * 1.5
-            
-        # 2. Index/Limit Errors (IndexError, StepLimitExceeded)
         if counts['IndexError'] > total_err * 0.3:
             if 'list_manip' in meta.op_weights:
                 meta.op_weights['list_manip'] *= 0.7
-                
-        # 3. Timeouts (StepLimitExceeded)
         if counts['StepLimitExceeded'] > total_err * 0.3:
-            meta.complexity_lambda *= 2.0 # Stronger penalty for long code
+            meta.complexity_lambda *= 2.0
 
 @dataclass
 class Universe:
@@ -1316,7 +1088,7 @@ class Universe:
     meta: MetaState
     pool: List[Genome]
     library: FunctionLibrary
-    discriminator: ProblemGenerator = field(default_factory=ProblemGenerator) # [NEW] Phase 3
+    discriminator: ProblemGenerator = field(default_factory=ProblemGenerator)
     best: Optional[Genome] = None
     best_score: float = float('inf')
     best_hold: float = float('inf')
@@ -1326,21 +1098,15 @@ class Universe:
     def step(self, gen: int, task: TaskSpec, pop_size: int) -> Dict:
         rng = random.Random(self.seed + gen * 1009)
         batch = sample_batch(rng, task)
-        # helpers = self.library.get_helpers() # Disable LGP library for now
-        # Evaluation
         scored = []
-        all_results = [] # [Meta] Track all for error analysis
+        all_results = []
         for g in self.pool:
             res = evaluate(g, batch, task.name, self.meta.complexity_lambda)
             all_results.append((g, res))
             if res.ok:
                 scored.append((g, res))
-        
-        # [Meta-Cognition] Analyze Errors & Adjust Strategy
         MetaCognitiveEngine.analyze_execution(all_results, self.meta)
-        
         if not scored:
-            # [Detective] Re-check pattern for fresh seeds
             hint = TaskDetective.detect_pattern(batch)
             self.pool = [seed_genome(rng, hint) for _ in range(pop_size)]
             return {'gen': gen, 'accepted': False, 'reason': 'reseed'}
@@ -1348,51 +1114,29 @@ class Universe:
         if scored:
             best_g, best_res = scored[0]
             MAP_ELITES.add(best_g, best_res.score)
-        
-        # Dynamic Selection
-        sel_ctx = {
-            'pool': [g for g, _ in scored],
-            'scores': [res.score for _, res in scored],
-            'pop_size': pop_size,
-            'map_elites': MAP_ELITES,
-            'rng': rng
-        }
+        sel_ctx = {'pool': [g for g, _ in scored], 'scores': [res.score for _, res in scored], 'pop_size': pop_size, 'map_elites': MAP_ELITES, 'rng': rng}
         sel_res = safe_exec_engine(self.meta.strategy.selection_code, sel_ctx)
-        
-        if sel_res and isinstance(sel_res, (tuple, list)) and len(sel_res) == 2:
+        if sel_res and isinstance(sel_res, (tuple, list)) and (len(sel_res) == 2):
             elites, parenting_pool = sel_res
         else:
-            # Fallback
             elites = [g for g, _ in scored[:max(4, pop_size // 10)]]
             parenting_pool = [rng.choice(elites) for _ in range(pop_size - len(elites))]
-
-        # [PHASE 3] Intelligent Guidance: Generate & Filter
         candidates: List[Genome] = []
         needed = pop_size - len(elites)
-        # Generate 2x candidates to allow surrogate to pick best
-        attempts_needed = needed * 2 
-        
+        attempts_needed = needed * 2
         mate_pool = list(elites) + list(parenting_pool)
-        
         while len(candidates) < attempts_needed:
-            # Pick Parent
             parent = rng.choice(parenting_pool) if parenting_pool else rng.choice(elites)
-            
             new_stmts = None
             op_tag = 'copy'
-            
-            # Dynamic Crossover
             if rng.random() < self.meta.crossover_rate and len(mate_pool) > 1:
                 p2 = rng.choice(mate_pool)
                 cross_ctx = {'p1': parent.statements, 'p2': p2.statements, 'rng': rng}
                 new_stmts = safe_exec_engine(self.meta.strategy.crossover_code, cross_ctx)
                 if new_stmts:
                     op_tag = 'crossover'
-
             if not new_stmts:
                 new_stmts = parent.statements[:]
-            
-            # Mutation
             if op_tag == 'copy' and rng.random() < self.meta.mutation_rate:
                 use_synth = rng.random() < 0.3 and OPERATORS_LIB
                 if use_synth:
@@ -1405,28 +1149,18 @@ class Universe:
                     if op in OPERATORS:
                         new_stmts = OPERATORS[op](rng, new_stmts)
                     op_tag = f'mut:{op}'
-
             candidates.append(Genome(statements=new_stmts, parents=[parent.gid], op_tag=op_tag))
-
-        # Surrogate Selection
-        # Predict fitness for all candidates
         with_pred = []
         for c in candidates:
             score_est = SURROGATE.predict(c.code)
             with_pred.append((c, score_est))
-            
-        # Select top 'needed' by predicted score (ascending error)
         with_pred.sort(key=lambda x: x[1])
         selected_children = [c for c, _ in with_pred[:needed]]
-        
         self.pool = list(elites) + selected_children
         if rng.random() < 0.02:
             maybe_evolve_operators_lib(rng)
-            
-        # [PHASE 4] EDA
         if gen % 5 == 0:
             induce_grammar(list(elites))
-
         best_g, best_res = scored[0]
         old_score = self.best_score
         accepted = best_res.score < self.best_score - 1e-09
@@ -1445,21 +1179,14 @@ class Universe:
 
     def co_evolve_step(self, gen: int, current_task: TaskSpec, pop_size: int) -> Tuple[Dict, Optional[TaskSpec]]:
         """Phase 3 Loop: Identify if we need a new task."""
-        # 1. Run standard solver step
         log = self.step(gen, current_task, pop_size)
-        
-        # 2. Check if current task is "Solved" (Error < 1.0)
-        # If solved, let Discriminator generate a harder task
         new_task = None
         if self.best_score < 1.0:
-            # Task Solved! Challenge me.
             rng = random.Random(self.seed + gen)
             new_task = self.discriminator.evolve_task(rng, self.pool[:5])
-            # Reset score to force adaptation to new task
             self.best_score = float('inf')
-            self.pool = [seed_genome(rng) for _ in range(pop_size)] # Reseed for fairness
-            
-        return log, new_task
+            self.pool = [seed_genome(rng) for _ in range(pop_size)]
+        return (log, new_task)
 
     def snapshot(self) -> Dict:
         return {'uid': self.uid, 'seed': self.seed, 'meta': asdict(self.meta), 'best': asdict(self.best) if self.best else None, 'best_score': self.best_score, 'best_hold': self.best_hold, 'best_stress': self.best_stress, 'pool': [asdict(g) for g in self.pool[:20]], 'library': self.library.snapshot(), 'history': self.history[-50:]}
@@ -1467,10 +1194,8 @@ class Universe:
     @staticmethod
     def from_snapshot(s: Dict) -> 'Universe':
         meta_data = s.get('meta', {})
-        # Fix: Reconstruct EngineStrategy if it exists as a dict
         if 'strategy' in meta_data and isinstance(meta_data['strategy'], dict):
             meta_data['strategy'] = EngineStrategy(**meta_data['strategy'])
-        
         meta = MetaState(**{k: v for k, v in meta_data.items() if k != 'op_weights'})
         meta.op_weights = meta_data.get('op_weights', {k: 1.0 for k in OPERATORS})
         pool = [Genome(**g) for g in s.get('pool', [])]
@@ -1519,11 +1244,10 @@ def run_multiverse(seed: int, task: TaskSpec, gens: int, pop: int, n_univ: int, 
         us = [Universe.from_snapshot(s) for s in gs0.universes]
         start = gs0.generations_done
     else:
-        # [Task Detective] Analyze task before starting
         b0 = sample_batch(random.Random(seed), task)
         hint = TaskDetective.detect_pattern(b0)
         if hint:
-            print(f"[Detective] Detected pattern: {hint}. Injecting smart seeds.")
+            print(f'[Detective] Detected pattern: {hint}. Injecting smart seeds.')
         us = [Universe(uid=i, seed=seed + i * 9973, meta=MetaState(), pool=[seed_genome(random.Random(seed + i), hint) for _ in range(pop)], library=FunctionLibrary()) for i in range(n_univ)]
         start = 0
     for gen in range(start, start + gens):
