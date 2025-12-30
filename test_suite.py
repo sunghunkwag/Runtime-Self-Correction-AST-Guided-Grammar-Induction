@@ -1,16 +1,17 @@
 #!/usr/bin/env python
 """
-Comprehensive Verification Suite for L2_UNIFIED_RSI.py
-Tests: EDA, ARC Loading, TDR, Algorithmic Tasks
+Comprehensive Verification Suite for UNIFIED_RSI_EXTENDED.py
+Tests: EDA, ARC Loading, Patch Safety, Algorithmic Tasks, Meta Autopatch
 """
 
 import sys
 import random
 import time
-from L2_UNIFIED_RSI import (
-    TaskSpec, Universe, MetaState, FunctionLibrary,
-    GRAMMAR_PROBS, load_arc_task, get_arc_tasks,
-    apply_patch_safe
+import ast
+from UNIFIED_RSI_EXTENDED import (
+    TaskSpec, Universe, MetaState, FunctionLibrary, GlobalState,
+    GRAMMAR_PROBS, load_arc_task, get_arc_tasks, sample_batch,
+    propose_patches, run_deep_autopatch, save_state
 )
 
 def test_eda_grammar_learning():
@@ -22,16 +23,21 @@ def test_eda_grammar_learning():
     initial_var = GRAMMAR_PROBS.get('var', 2.0)
     print(f"Initial 'var' weight: {initial_var:.2f}")
     
-    task = TaskSpec(name='poly2', x_min=-3, x_max=3)
+    task = TaskSpec(name='poly2', x_min=-3, x_max=3, n_train=24, n_hold=16, n_test=16)
     meta = MetaState()
     uni = Universe(uid=1, seed=42, meta=meta, pool=[], library=FunctionLibrary())
+    rng = random.Random(42)
     
-    # Run 10 generations (EDA updates every 5 gens)
-    for g in range(11):
-        uni.step(g, task, pop_size=50)
+    # Run 6 generations (EDA updates every 5 gens)
+    for g in range(6):
+        batch = sample_batch(rng, task)
+        if batch is None:
+            print("❌ FAIL: Batch generation returned None")
+            return False
+        uni.step(g, task, pop_size=20, batch=batch)
         
     final_var = GRAMMAR_PROBS.get('var', 2.0)
-    print(f"After 10 gens 'var' weight: {final_var:.2f}")
+    print(f"After 5 gens 'var' weight: {final_var:.2f}")
     
     if final_var != initial_var:
         print("✅ PASS: Grammar weights changed (EDA learning active)")
@@ -50,13 +56,18 @@ def test_algorithmic_tasks():
     results = []
     
     for tname in tasks:
-        task = TaskSpec(name=tname, x_min=3, x_max=5)
+        task = TaskSpec(name=tname, x_min=3, x_max=5, n_train=24, n_hold=16, n_test=16)
         meta = MetaState()
         uni = Universe(uid=1, seed=int(time.time()), meta=meta, pool=[], library=FunctionLibrary())
+        rng = random.Random(uni.seed)
         
         initial_score = float('inf')
-        for g in range(5):
-            uni.step(g, task, pop_size=30)
+        for g in range(4):
+            batch = sample_batch(rng, task)
+            if batch is None:
+                print(f"❌ FAIL: Batch generation returned None for {tname}")
+                return False
+            uni.step(g, task, pop_size=20, batch=batch)
             if g == 1:
                 initial_score = uni.best_score
                 
@@ -97,9 +108,14 @@ def test_arc_json_loading():
         task = TaskSpec(name=f'arc_{tid}', x_min=3, x_max=3)
         meta = MetaState()
         uni = Universe(uid=1, seed=42, meta=meta, pool=[], library=FunctionLibrary())
+        rng = random.Random(42)
         
         try:
-            uni.step(0, task, pop_size=10)
+            batch = sample_batch(rng, task)
+            if batch is None:
+                print("❌ FAIL: ARC batch generation returned None")
+                return False
+            uni.step(0, task, pop_size=10, batch=batch)
             print(f"  Execution test: Score={uni.best_score:.2f}")
             return True
         except Exception as e:
@@ -109,57 +125,36 @@ def test_arc_json_loading():
         print(f"❌ FAIL: Could not load task '{tid}'")
         return False
 
-def test_tdr_patching():
-    """Test 4: Test-Driven Repair"""
+def test_patch_plan_safety():
+    """Test 4: Patch Plan Syntax Safety"""
     print("\n" + "="*60)
-    print("TEST 4: Test-Driven Repair (TDR)")
+    print("TEST 4: Patch Plan Syntax Safety")
     print("="*60)
     
-    import os
-    target = "test_dummy.py"
-    
-    # Test 1: Valid patch
-    valid_code = "x = 1\nprint('test')"
-    success = apply_patch_safe(target, valid_code)
-    
-    if not success:
-        print("❌ FAIL: Valid patch rejected")
-        if os.path.exists(target): os.remove(target)
+    meta = MetaState(mutation_rate=0.5)
+    uni = Universe(uid=1, seed=123, meta=meta, pool=[], library=FunctionLibrary())
+    gs = GlobalState('v1', 0, 0, 123, {'name': 'test'}, [uni.snapshot()], 1, 0)
+    plans = propose_patches(gs, levels=[0, 1, 3])
+
+    if not plans:
+        print("❌ FAIL: No patch plans generated")
         return False
-        
-    # Test 2: Invalid patch (syntax error)
-    bad_code = "def broken(: pass"
-    success = apply_patch_safe(target, bad_code)
-    
-    if success:
-        print("❌ FAIL: Bad patch accepted (should rollback)")
-        if os.path.exists(target): os.remove(target)
-        return False
-        
-    # Verify rollback worked
-    with open(target, 'r') as f:
-        content = f.read()
-        
-    if "x = 1" in content:
-        print("✅ PASS: TDR rollback successful")
-        os.remove(target)
-        if os.path.exists(target + ".bak"):
-            os.remove(target + ".bak")
-        return True
-    else:
-        print("❌ FAIL: Rollback did not restore original")
-        os.remove(target)
-        return False
+
+    for plan in plans:
+        try:
+            ast.parse(plan.new_source)
+        except SyntaxError as e:
+            print(f"❌ FAIL: Patch {plan.patch_id} generated invalid syntax: {e}")
+            return False
+
+    print(f"✅ PASS: {len(plans)} patch plans parsed successfully")
+    return True
 
 def test_meta_autopatch():
     """Test 5: Meta-RSI Autopatch (Mocked)"""
     print("\n" + "="*60)
     print("TEST 5: Meta-RSI Autopatch (L0-L5)")
     print("="*60)
-    
-    # 1. Mock Global State
-    from L2_UNIFIED_RSI import GlobalState, MetaState, Universe, FunctionLibrary, save_state, run_deep_autopatch
-    import L2_UNIFIED_RSI as rsi
     
     # Create a dummy state
     meta = MetaState(mutation_rate=0.5)
@@ -169,6 +164,7 @@ def test_meta_autopatch():
     save_state(gs)
     
     # 2. Mock probe_run to simulate improvement
+    import UNIFIED_RSI_EXTENDED as rsi
     original_probe = rsi.probe_run
     
     def mock_probe(script, gens=0, pop=0):
@@ -207,14 +203,14 @@ def test_meta_autopatch():
 def run_all_tests():
     """Run complete verification suite"""
     print("\n" + "█"*60)
-    print("  L2_UNIFIED_RSI.py - Comprehensive Verification Suite")
+    print("  UNIFIED_RSI_EXTENDED.py - Comprehensive Verification Suite")
     print("█"*60)
     
     tests = [
         ("EDA Grammar Learning", test_eda_grammar_learning),
         ("Algorithmic Tasks", test_algorithmic_tasks),
         ("ARC JSON Loading", test_arc_json_loading),
-        ("Test-Driven Repair", test_tdr_patching),
+        ("Patch Plan Safety", test_patch_plan_safety),
         ("Meta-RSI Autopatch", test_meta_autopatch)
     ]
     

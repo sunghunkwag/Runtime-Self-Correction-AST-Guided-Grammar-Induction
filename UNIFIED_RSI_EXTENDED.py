@@ -16,10 +16,12 @@ CLI:
   python UNIFIED_RSI_EXTENDED.py selftest
   python UNIFIED_RSI_EXTENDED.py evolve --fresh --generations 100
   python UNIFIED_RSI_EXTENDED.py evolve --fresh --generations 50 --mode program
+  python UNIFIED_RSI_EXTENDED.py evolve --fresh --generations 50 --mode algo --task sort_int_list
   python UNIFIED_RSI_EXTENDED.py learner-evolve --fresh --generations 100
   python UNIFIED_RSI_EXTENDED.py meta-meta --episodes 20 --gens-per-episode 20
   python UNIFIED_RSI_EXTENDED.py task-switch --task-a poly2 --task-b piecewise
   python UNIFIED_RSI_EXTENDED.py report --state-dir .rsi_state
+  python UNIFIED_RSI_EXTENDED.py transfer-bench --from poly2 --to piecewise --budget 10
   python UNIFIED_RSI_EXTENDED.py autopatch --levels 0,1,3 --apply
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 50 --rounds 10
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 20 --rounds 5 --mode learner
@@ -30,6 +32,7 @@ L0: Solver supports expression genomes and strict program-mode genomes (Assign/I
 L1: RuleDSL controls mutation/crossover/novelty/acceptance/curriculum knobs per generation.
 L2: Meta-meta loop proposes RuleDSL patches and accepts only when meta-test transfer improves.
 Metrics: frozen train/hold/stress/test sets, per-gen logs, and transfer report (AUC/regret/recovery/gap).
+Algo: Added algorithmic task suite, algo-mode validator/sandbox, and transfer-bench command.
 """
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ import tempfile
 import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Set, Union
 
 
 # ---------------------------
@@ -120,6 +123,16 @@ class RunLogger:
         accepted: bool,
         novelty: float,
         meta_policy_params: Dict[str, Any],
+        solver_hash: Optional[str] = None,
+        p1_hash: Optional[str] = None,
+        err_hold: Optional[float] = None,
+        err_stress: Optional[float] = None,
+        err_test: Optional[float] = None,
+        steps: Optional[int] = None,
+        timeout_rate: Optional[float] = None,
+        counterexample_count: Optional[int] = None,
+        library_size: Optional[int] = None,
+        control_packet: Optional[Dict[str, Any]] = None,
         task_descriptor: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         self.best_scores.append(score_hold)
@@ -133,10 +146,15 @@ class RunLogger:
         record = {
             "gen": gen,
             "task_id": task_id,
+            "solver_hash": solver_hash or code_hash,
+            "p1_hash": p1_hash or "default",
             "mode": mode,
             "score_hold": score_hold,
             "score_stress": score_stress,
             "score_test": score_test,
+            "err_hold": err_hold if err_hold is not None else score_hold,
+            "err_stress": err_stress if err_stress is not None else score_stress,
+            "err_test": err_test if err_test is not None else score_test,
             "auc_window": auc_window,
             "delta_best_window": delta_best_window,
             "runtime_ms": runtime_ms,
@@ -145,6 +163,11 @@ class RunLogger:
             "accepted": accepted,
             "novelty": novelty,
             "meta_policy_params": meta_policy_params,
+            "steps": steps,
+            "timeout_rate": timeout_rate,
+            "counterexample_count": counterexample_count,
+            "library_size": library_size,
+            "control_packet": control_packet or {},
             "task_descriptor": task_descriptor,
         }
         with self.path.open("a", encoding="utf-8") as f:
@@ -173,7 +196,7 @@ SAFE_FUNCS: Dict[str, Callable] = {
     "ceil": math.ceil,
     "floor": math.floor,
     "sign": lambda x: math.copysign(1.0, x),
-    # list helpers
+    # list helpers (legacy)
     "sorted": sorted,
     "reversed": reversed,
     "max": max,
@@ -198,6 +221,118 @@ SAFE_BUILTINS = {
     "sorted": sorted,
     "reversed": reversed,
     "sum": sum,
+}
+
+# ---------------------------
+# Algo-mode safe primitives
+# ---------------------------
+
+def make_list(size: int = 0, fill: Any = 0) -> List[Any]:
+    size = int(clamp(size, 0, 256))
+    return [fill for _ in range(size)]
+
+def list_len(xs: Any) -> int:
+    return len(xs) if isinstance(xs, list) else 0
+
+def list_get(xs: Any, idx: int, default: Any = 0) -> Any:
+    if not isinstance(xs, list) or not xs:
+        return default
+    i = int(idx)
+    if i < 0:
+        i = 0
+    if i >= len(xs):
+        i = len(xs) - 1
+    return xs[i]
+
+def list_set(xs: Any, idx: int, val: Any) -> List[Any]:
+    if not isinstance(xs, list):
+        return make_list()
+    if not xs:
+        return [val]
+    i = int(idx)
+    if i < 0:
+        i = 0
+    if i >= len(xs):
+        i = len(xs) - 1
+    ys = list(xs)
+    ys[i] = val
+    return ys
+
+def list_push(xs: Any, val: Any) -> List[Any]:
+    ys = list(xs) if isinstance(xs, list) else []
+    if len(ys) >= 256:
+        return ys
+    ys.append(val)
+    return ys
+
+def list_pop(xs: Any, default: Any = 0) -> Tuple[List[Any], Any]:
+    ys = list(xs) if isinstance(xs, list) else []
+    if not ys:
+        return (ys, default)
+    val = ys.pop()
+    return (ys, val)
+
+def list_swap(xs: Any, i: int, j: int) -> List[Any]:
+    ys = list(xs) if isinstance(xs, list) else []
+    if not ys:
+        return ys
+    a = int(clamp(i, 0, len(ys) - 1))
+    b = int(clamp(j, 0, len(ys) - 1))
+    ys[a], ys[b] = ys[b], ys[a]
+    return ys
+
+def list_copy(xs: Any) -> List[Any]:
+    return list(xs) if isinstance(xs, list) else []
+
+def make_map() -> Dict[Any, Any]:
+    return {}
+
+def map_get(m: Any, key: Any, default: Any = 0) -> Any:
+    if not isinstance(m, dict):
+        return default
+    return m.get(key, default)
+
+def map_set(m: Any, key: Any, val: Any) -> Dict[Any, Any]:
+    d = dict(m) if isinstance(m, dict) else {}
+    if len(d) >= 256 and key not in d:
+        return d
+    d[key] = val
+    return d
+
+def map_has(m: Any, key: Any) -> bool:
+    return isinstance(m, dict) and key in m
+
+def safe_range(n: int, limit: int = 256) -> List[int]:
+    n = int(clamp(n, 0, limit))
+    return list(range(n))
+
+def safe_irange(a: int, b: int, limit: int = 256) -> List[int]:
+    a = int(clamp(a, -limit, limit))
+    b = int(clamp(b, -limit, limit))
+    if a <= b:
+        return list(range(a, b))
+    return list(range(a, b, -1))
+
+SAFE_ALGO_FUNCS: Dict[str, Callable] = {
+    "make_list": make_list,
+    "list_len": list_len,
+    "list_get": list_get,
+    "list_set": list_set,
+    "list_push": list_push,
+    "list_pop": list_pop,
+    "list_swap": list_swap,
+    "list_copy": list_copy,
+    "make_map": make_map,
+    "map_get": map_get,
+    "map_set": map_set,
+    "map_has": map_has,
+    "safe_range": safe_range,
+    "safe_irange": safe_irange,
+    "clamp": clamp,
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "int": int,
 }
 
 SAFE_VARS = {"x"} | {f"v{i}" for i in range(10)}
@@ -411,6 +546,105 @@ def validate_program(code: str) -> Tuple[bool, str]:
         return (False, str(e))
 
 
+class AlgoProgramValidator(ast.NodeVisitor):
+    """Algo-mode validator with bounded structure and no attribute access."""
+
+    _allowed = [
+        ast.Module,
+        ast.FunctionDef,
+        ast.arguments,
+        ast.arg,
+        ast.Return,
+        ast.Assign,
+        ast.Name,
+        ast.Constant,
+        ast.Expr,
+        ast.If,
+        ast.For,
+        ast.While,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Compare,
+        ast.BoolOp,
+        ast.IfExp,
+        ast.Call,
+        ast.Subscript,
+        ast.Load,
+        ast.Store,
+        ast.operator,
+        ast.boolop,
+        ast.unaryop,
+        ast.cmpop,
+    ]
+    if hasattr(ast, "Index"):
+        _allowed.append(ast.Index)
+
+    ALLOWED = tuple(_allowed)
+
+    def __init__(self):
+        self.ok, self.err = (True, None)
+
+    def visit(self, node):
+        if not isinstance(node, self.ALLOWED):
+            self.ok, self.err = (False, f"Forbidden: {type(node).__name__}")
+            return
+        if isinstance(node, ast.Attribute):
+            self.ok, self.err = (False, "Forbidden attribute access")
+            return
+        if isinstance(node, ast.Name):
+            if node.id.startswith("__") or node.id in ("open", "eval", "exec", "compile", "__import__", "globals", "locals"):
+                self.ok, self.err = (False, f"Forbidden name: {node.id}")
+                return
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+                return
+        super().generic_visit(node)
+
+
+def algo_program_limits_ok(
+    code: str,
+    max_nodes: int = 280,
+    max_depth: int = 24,
+    max_funcs: int = 4,
+    max_locals: int = 24,
+    max_consts: int = 64,
+    max_subscripts: int = 32,
+) -> bool:
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return False
+    nodes = sum(1 for _ in ast.walk(tree))
+    depth = ast_depth(code)
+    funcs = sum(1 for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
+    locals_set = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    consts = sum(1 for n in ast.walk(tree) if isinstance(n, ast.Constant))
+    subs = sum(1 for n in ast.walk(tree) if isinstance(n, ast.Subscript))
+    return (
+        nodes <= max_nodes
+        and depth <= max_depth
+        and funcs <= max_funcs
+        and len(locals_set) <= max_locals
+        and consts <= max_consts
+        and subs <= max_subscripts
+    )
+
+
+def validate_algo_program(code: str) -> Tuple[bool, str]:
+    try:
+        tree = ast.parse(code)
+        v = AlgoProgramValidator()
+        v.visit(tree)
+        if not v.ok:
+            return (False, v.err or "")
+        if not algo_program_limits_ok(code):
+            return (False, "algo_program_limits")
+        return (True, "")
+    except Exception as e:
+        return (False, str(e))
+
+
 class ExprValidator(ast.NodeVisitor):
     """Validate a single expression (mode='eval') allowing only safe names and safe call forms."""
     ALLOWED = (
@@ -535,6 +769,39 @@ def safe_exec(code: str, x: Any, timeout_steps: int = 1000, extra_env: Optional[
         return float("nan")
     except Exception:
         return float("nan")
+
+
+def safe_exec_algo(
+    code: str,
+    inp: Any,
+    timeout_steps: int = 2000,
+    max_runtime_ms: int = 50,
+    extra_env: Optional[Dict[str, Any]] = None,
+) -> Tuple[Any, int, bool]:
+    """Execute algo candidate code with strict step/time limits."""
+    start = time.time()
+    try:
+        tree = ast.parse(code)
+        transformer = StepLimitTransformer(timeout_steps)
+        tree = transformer.visit(tree)
+        ast.fix_missing_locations(tree)
+
+        env: Dict[str, Any] = {"_steps": 0, "StepLimitExceeded": StepLimitExceeded}
+        env.update(SAFE_ALGO_FUNCS)
+        if extra_env:
+            env.update(extra_env)
+
+        exec(compile(tree, "<algo>", "exec"), {"__builtins__": {}}, env)
+        if "run" not in env:
+            return (None, env.get("_steps", 0), True)
+        out = env["run"](inp)
+        elapsed_ms = int((time.time() - start) * 1000)
+        timed_out = elapsed_ms > max_runtime_ms
+        return (out, int(env.get("_steps", 0)), timed_out)
+    except StepLimitExceeded:
+        return (None, int(env.get("_steps", 0) if "env" in locals() else 0), True)
+    except Exception:
+        return (None, int(env.get("_steps", 0) if "env" in locals() else 0), True)
 
 
 def safe_exec_engine(code: str, context: Dict[str, Any], timeout_steps: int = 5000) -> Any:
@@ -711,12 +978,14 @@ class TaskSpec:
             family = "classification"
         elif self.name in ("sort", "reverse", "filter", "max", "even_reverse_sort"):
             family = "list"
+        elif self.name in ALGO_TASK_NAMES:
+            family = "algo"
         elif self.name.startswith("arc_"):
             family = "arc"
         self.descriptor = TaskDescriptor(
             name=self.name,
             family=family,
-            input_kind="list" if family == "list" else ("grid" if family == "arc" else "scalar"),
+            input_kind="list" if family in ("list", "algo") else ("grid" if family == "arc" else "scalar"),
             output_kind="class" if family == "classification" else "scalar",
             n_train=self.n_train,
             n_hold=self.n_hold,
@@ -727,6 +996,190 @@ class TaskSpec:
             nonlinear=family in ("poly", "piecewise", "rational", "switching"),
         )
         return self.descriptor
+
+
+# ---------------------------
+# Algorithmic task suite (algo mode)
+# ---------------------------
+
+ALGO_TASK_NAMES = {
+    "sort_int_list",
+    "topk",
+    "two_sum",
+    "balanced_parens",
+    "gcd_list",
+    "rpn_eval",
+    "bfs_shortest_path",
+    "coin_change_min",
+    "substring_find",
+    "unique_count",
+}
+
+ALGO_COUNTEREXAMPLES: Dict[str, List[Tuple[Any, Any]]] = {name: [] for name in ALGO_TASK_NAMES}
+
+def _gen_int_list(rng: random.Random, min_len: int, max_len: int, lo: int = -9, hi: int = 9) -> List[int]:
+    ln = rng.randint(min_len, max_len)
+    return [rng.randint(lo, hi) for _ in range(ln)]
+
+def _gen_parens(rng: random.Random, min_len: int, max_len: int) -> List[int]:
+    ln = rng.randint(min_len, max_len)
+    return [0 if rng.random() < 0.5 else 1 for _ in range(ln)]
+
+def _gen_graph(rng: random.Random, n_min: int, n_max: int) -> List[List[int]]:
+    n = rng.randint(n_min, n_max)
+    g = []
+    for i in range(n):
+        neigh = []
+        for j in range(n):
+            if i != j and rng.random() < 0.25:
+                neigh.append(j)
+        g.append(neigh)
+    return g
+
+def _algo_descriptor(name: str) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "family": "algo",
+        "input_kind": "list",
+        "output_kind": "scalar",
+        "n_train": 0,
+        "n_hold": 0,
+        "n_test": 0,
+        "noise": 0.0,
+        "stress_mult": 2.0,
+        "has_switch": False,
+        "nonlinear": True,
+    }
+
+def _algo_task_data(name: str, rng: random.Random, n: int, stress: bool = False) -> Tuple[List[Any], List[Any]]:
+    xs: List[Any] = []
+    ys: List[Any] = []
+    for _ in range(n):
+        if name == "sort_int_list":
+            x = _gen_int_list(rng, 2, 8 if not stress else 12)
+            y = sorted(x)
+        elif name == "topk":
+            arr = _gen_int_list(rng, 2, 10 if not stress else 14)
+            k = rng.randint(1, max(1, len(arr) // 2))
+            x = [arr, k]
+            y = sorted(arr, reverse=True)[:k]
+        elif name == "two_sum":
+            arr = _gen_int_list(rng, 2, 10 if not stress else 14)
+            i, j = rng.sample(range(len(arr)), 2)
+            target = arr[i] + arr[j]
+            x = [arr, target]
+            y = [i, j]
+        elif name == "balanced_parens":
+            seq = _gen_parens(rng, 2, 12 if not stress else 18)
+            bal = 0
+            ok = 1
+            for t in seq:
+                bal += 1 if t == 0 else -1
+                if bal < 0:
+                    ok = 0
+                    break
+            if bal != 0:
+                ok = 0
+            x = seq
+            y = ok
+        elif name == "gcd_list":
+            arr = [abs(v) + 1 for v in _gen_int_list(rng, 2, 8 if not stress else 12, 1, 9)]
+            g = arr[0]
+            for v in arr[1:]:
+                g = math.gcd(g, v)
+            x = arr
+            y = g
+        elif name == "rpn_eval":
+            a, b = rng.randint(1, 9), rng.randint(1, 9)
+            op = rng.choice([-1, -2, -3, -4])
+            if op == -1:
+                y = a + b
+            elif op == -2:
+                y = a - b
+            elif op == -3:
+                y = a * b
+            else:
+                y = a // b if b else 0
+            x = [a, b, op]
+        elif name == "bfs_shortest_path":
+            g = _gen_graph(rng, 4, 7 if not stress else 9)
+            s, t = rng.sample(range(len(g)), 2)
+            dist = [-1] * len(g)
+            dist[s] = 0
+            q = [s]
+            while q:
+                cur = q.pop(0)
+                for nxt in g[cur]:
+                    if dist[nxt] == -1:
+                        dist[nxt] = dist[cur] + 1
+                        q.append(nxt)
+            x = [g, s, t]
+            y = dist[t]
+        elif name == "coin_change_min":
+            coins = [c for c in _gen_int_list(rng, 2, 5 if not stress else 7, 1, 8) if c > 0]
+            amount = rng.randint(1, 12 if not stress else 18)
+            dp = [float("inf")] * (amount + 1)
+            dp[0] = 0
+            for c in coins:
+                for a in range(c, amount + 1):
+                    dp[a] = min(dp[a], dp[a - c] + 1)
+            y = -1 if dp[amount] == float("inf") else int(dp[amount])
+            x = [coins, amount]
+        elif name == "substring_find":
+            hay = _gen_int_list(rng, 4, 10 if not stress else 14, 1, 4)
+            needle = hay[1:3] if len(hay) > 3 and rng.random() < 0.7 else _gen_int_list(rng, 2, 3, 1, 4)
+            idx = -1
+            for i in range(len(hay) - len(needle) + 1):
+                if hay[i:i + len(needle)] == needle:
+                    idx = i
+                    break
+            x = [hay, needle]
+            y = idx
+        elif name == "unique_count":
+            arr = _gen_int_list(rng, 3, 10 if not stress else 14, 1, 6)
+            x = arr
+            y = len(set(arr))
+        else:
+            x = []
+            y = 0
+        xs.append(x)
+        ys.append(y)
+    return xs, ys
+
+def algo_batch(name: str, seed: int, freeze_eval: bool = True, train_resample_every: int = 1, gen: int = 0) -> Optional[Batch]:
+    if name not in ALGO_TASK_NAMES:
+        return None
+    rng = random.Random(seed)
+    hold_rng = random.Random(seed + 11)
+    stress_rng = random.Random(seed + 29)
+    test_rng = random.Random(seed + 47)
+    if not freeze_eval:
+        hold_rng = random.Random(seed + 11 + gen)
+        stress_rng = random.Random(seed + 29 + gen)
+        test_rng = random.Random(seed + 47 + gen)
+    train_rng = rng if train_resample_every <= 1 else random.Random(seed + gen // max(1, train_resample_every))
+    x_tr, y_tr = _algo_task_data(name, train_rng, 40, stress=False)
+    x_ho, y_ho = _algo_task_data(name, hold_rng, 24, stress=False)
+    x_st, y_st = _algo_task_data(name, stress_rng, 24, stress=True)
+    x_te, y_te = _algo_task_data(name, test_rng, 24, stress=True)
+    return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st, x_te, y_te)
+
+
+@dataclass
+class ControlPacket:
+    mutation_rate: Optional[float] = None
+    crossover_rate: Optional[float] = None
+    novelty_weight: float = 0.0
+    branch_insert_rate: float = 0.0
+    op_weights: Optional[Dict[str, float]] = None
+    acceptance_margin: float = 1e-9
+    patience: int = 5
+
+    def get(self, key: str, default: Any = None) -> Any:
+        val = getattr(self, key, default)
+        if val is None:
+            return default
+        return val
 
 
 TARGET_FNS = {
@@ -921,7 +1374,15 @@ def _task_cache_key(task: TaskSpec, seed: int) -> str:
     return f"{task.name}:{seed}:{task.x_min}:{task.x_max}:{task.n_train}:{task.n_hold}:{task.n_test}:{task.noise}:{task.stress_mult}:{task.target_code}"
 
 
-def get_task_batch(task: TaskSpec, seed: int, freeze_eval: bool = True) -> Optional[Batch]:
+def get_task_batch(
+    task: TaskSpec,
+    seed: int,
+    freeze_eval: bool = True,
+    train_resample_every: int = 1,
+    gen: int = 0,
+) -> Optional[Batch]:
+    if task.name in ALGO_TASK_NAMES:
+        return algo_batch(task.name, seed, freeze_eval=freeze_eval, train_resample_every=train_resample_every, gen=gen)
     key = _task_cache_key(task, seed)
     if freeze_eval and key in FROZEN_BATCH_CACHE:
         return FROZEN_BATCH_CACHE[key]
@@ -1137,6 +1598,73 @@ def mse_exec(
         return (True, total_err / max(1, len(xs)), "")
     except Exception as e:
         return (False, float("inf"), f"{type(e).__name__}: {str(e)}")
+
+
+def _algo_equal(a: Any, b: Any) -> bool:
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        return all(_algo_equal(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return False
+        return all(_algo_equal(a[k], b[k]) for k in a.keys())
+    return a == b
+
+
+def algo_exec(
+    code: str,
+    xs: List[Any],
+    ys: List[Any],
+    task_name: str,
+    counterexamples: Optional[List[Tuple[Any, Any]]] = None,
+    validator: Callable[[str], Tuple[bool, str]] = validate_algo_program,
+) -> Tuple[bool, float, int, float, int, str]:
+    ok, err = validator(code)
+    if not ok:
+        return (False, 1.0, 0, 1.0, 0, err)
+    total = 0
+    timeouts = 0
+    steps = 0
+    failures = 0
+    extra = counterexamples[:] if counterexamples else []
+    xs_all = list(xs) + [x for x, _ in extra]
+    ys_all = list(ys) + [y for _, y in extra]
+    for x, y in zip(xs_all, ys_all):
+        out, used, timeout = safe_exec_algo(code, x)
+        steps += used
+        if timeout:
+            timeouts += 1
+        if not _algo_equal(out, y):
+            failures += 1
+            if counterexamples is not None and len(counterexamples) < 64:
+                counterexamples.append((x, y))
+        total += 1
+    err_rate = failures / max(1, total)
+    timeout_rate = timeouts / max(1, total)
+    avg_steps = steps // max(1, total)
+    return (True, err_rate, avg_steps, timeout_rate, total, "")
+
+
+def evaluate_algo(
+    g: Genome,
+    b: Batch,
+    task_name: str,
+    lam: float = 0.0001,
+) -> EvalResult:
+    code = g.code
+    counterexamples = ALGO_COUNTEREXAMPLES.get(task_name, [])
+    ok1, tr_err, tr_steps, tr_timeout, _, e1 = algo_exec(code, b.x_tr, b.y_tr, task_name, counterexamples)
+    ok2, ho_err, ho_steps, ho_timeout, _, e2 = algo_exec(code, b.x_ho, b.y_ho, task_name, counterexamples)
+    ok3, st_err, st_steps, st_timeout, _, e3 = algo_exec(code, b.x_st, b.y_st, task_name, counterexamples)
+    ok4, te_err, te_steps, te_timeout, _, e4 = algo_exec(code, b.x_te, b.y_te, task_name, counterexamples)
+    ok = ok1 and ok2 and ok3 and ok4
+    nodes = node_count(code)
+    step_penalty = 0.0001 * (tr_steps + ho_steps + st_steps + te_steps)
+    timeout_penalty = 0.5 * (tr_timeout + ho_timeout + st_timeout + te_timeout)
+    score = SCORE_W_HOLD * ho_err + SCORE_W_STRESS * st_err + SCORE_W_TRAIN * tr_err + lam * nodes + step_penalty + timeout_penalty
+    err = e1 or e2 or e3 or e4
+    return EvalResult(ok, tr_err, ho_err, st_err, te_err, nodes, score, err or None)
 
 
 def evaluate(
@@ -2047,7 +2575,14 @@ class Universe:
     best_test: float = float("inf")
     history: List[Dict] = field(default_factory=list)
 
-    def step(self, gen: int, task: TaskSpec, pop_size: int, batch: Batch, policy_controls: Optional[Dict[str, float]] = None) -> Dict:
+    def step(
+        self,
+        gen: int,
+        task: TaskSpec,
+        pop_size: int,
+        batch: Batch,
+        policy_controls: Optional[Union[Dict[str, float], ControlPacket]] = None,
+    ) -> Dict:
         rng = random.Random(self.seed + gen * 1009)
         if batch is None:
             self.pool = [seed_genome(rng) for _ in range(pop_size)]
@@ -2070,8 +2605,11 @@ class Universe:
         scored: List[Tuple[Genome, EvalResult]] = []
         all_results: List[Tuple[Genome, EvalResult]] = []
         for g in self.pool:
-            validator = validate_program if self.eval_mode == "program" else validate_code
-            res = evaluate(g, batch, task.name, self.meta.complexity_lambda, extra_env=helper_env, validator=validator)
+            if self.eval_mode == "algo":
+                res = evaluate_algo(g, batch, task.name, self.meta.complexity_lambda)
+            else:
+                validator = validate_program if self.eval_mode == "program" else validate_code
+                res = evaluate(g, batch, task.name, self.meta.complexity_lambda, extra_env=helper_env, validator=validator)
             all_results.append((g, res))
             if res.ok:
                 scored.append((g, res))
@@ -2502,7 +3040,7 @@ def run_multiverse(
                 for i in range(n_univ)
             ]
         else:
-            eval_mode = "program" if mode == "program" else "solver"
+            eval_mode = "program" if mode == "program" else ("algo" if mode == "algo" else "solver")
             us = [
                 Universe(
                     uid=i,
@@ -2533,6 +3071,15 @@ def run_multiverse(
         novelty = 1.0 if code_hash not in logger.seen_hashes else 0.0
         logger.seen_hashes.add(code_hash)
         accepted = bool(best.history[-1]["accepted"]) if best.history else False
+        last_log = best.history[-1] if best.history else {}
+        control_packet = {
+            "mutation_rate": best.meta.mutation_rate,
+            "crossover_rate": best.meta.crossover_rate,
+            "epsilon_explore": best.meta.epsilon_explore,
+            "acceptance_margin": 1e-9,
+            "patience": getattr(best.meta, "patience", 5),
+        }
+        counterexample_count = len(ALGO_COUNTEREXAMPLES.get(task.name, [])) if mode == "algo" else 0
         logger.log(
             gen=gen,
             task_id=task.name,
@@ -2546,6 +3093,16 @@ def run_multiverse(
             accepted=accepted,
             novelty=novelty,
             meta_policy_params={},
+            solver_hash=code_hash,
+            p1_hash="default",
+            err_hold=best.best_hold,
+            err_stress=best.best_stress,
+            err_test=getattr(best, "best_test", float("inf")),
+            steps=last_log.get("avg_nodes"),
+            timeout_rate=last_log.get("timeout_rate"),
+            counterexample_count=counterexample_count,
+            library_size=len(OPERATORS_LIB),
+            control_packet=control_packet,
             task_descriptor=task.descriptor.snapshot() if task.descriptor else None,
         )
         print(
@@ -2854,6 +3411,58 @@ def generate_report(path: Path, few_shot_gens: int) -> Dict[str, Any]:
             "few_shot_delta": few_shot_delta,
         }
     return report
+
+
+def transfer_bench(
+    task_from: str,
+    task_to: str,
+    budget: int,
+    seed: int,
+    freeze_eval: bool = True,
+) -> Dict[str, Any]:
+    task_a = TaskSpec(name=task_from)
+    task_b = TaskSpec(name=task_to)
+    mode = "algo" if task_from in ALGO_TASK_NAMES else "solver"
+    u = Universe(uid=0, seed=seed, meta=MetaState(), pool=[], library=FunctionLibrary(), eval_mode=mode)
+    rng = random.Random(seed)
+
+    for g in range(budget):
+        batch = get_task_batch(task_a, seed, freeze_eval=freeze_eval, gen=g)
+        if batch is None:
+            break
+        u.step(g, task_a, 24, batch)
+
+    holds: List[float] = []
+    for g in range(budget):
+        batch = get_task_batch(task_b, seed + 17, freeze_eval=freeze_eval, gen=g)
+        if batch is None:
+            break
+        u.step(g, task_b, 24, batch)
+        holds.append(u.best_hold)
+
+    auc = sum(holds) / max(1, len(holds))
+    best = min(holds) if holds else float("inf")
+    threshold = best * 1.1 if math.isfinite(best) else float("inf")
+    recovery_time = float("inf")
+    for i, h in enumerate(holds):
+        if h <= threshold:
+            recovery_time = i + 1
+            break
+
+    record = {
+        "from": task_from,
+        "to": task_to,
+        "budget": budget,
+        "seed": seed,
+        "auc_N": auc,
+        "recovery_time": recovery_time,
+        "holds": holds,
+    }
+    out = STATE_DIR / "transfer_bench.jsonl"
+    safe_mkdir(out.parent)
+    with out.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    return record
 
 
 # ---------------------------
@@ -3171,6 +3780,9 @@ def cmd_selftest(args):
     lr = evaluate_learner(lg, b, t.name)
     assert isinstance(lr.score, float)
 
+    algo_code = "def run(inp):\n    return inp\n"
+    assert validate_algo_program(algo_code)[0]
+
     print("[selftest] OK")
     return 0
 
@@ -3178,6 +3790,7 @@ def cmd_evolve(args):
     global STATE_DIR
     STATE_DIR = Path(args.state_dir)
     resume = bool(args.resume) and (not args.fresh)
+    mode = args.mode or ("algo" if args.task in ALGO_TASK_NAMES else "solver")
     run_multiverse(
         args.seed,
         TaskSpec(name=args.task),
@@ -3186,7 +3799,7 @@ def cmd_evolve(args):
         args.universes,
         resume=resume,
         save_every=args.save_every,
-        mode="solver",
+        mode=mode,
         freeze_eval=args.freeze_eval,
     )
     print(f"\n[OK] State saved to {STATE_DIR / 'state.json'}")
@@ -3286,6 +3899,14 @@ def cmd_report(args):
     print(json.dumps(report, indent=2))
     return 0
 
+
+def cmd_transfer_bench(args):
+    global STATE_DIR
+    STATE_DIR = Path(args.state_dir)
+    result = transfer_bench(args.task_from, args.task_to, args.budget, args.seed, freeze_eval=not args.no_freeze_eval)
+    print(json.dumps(result, indent=2))
+    return 0
+
 def build_parser():
     p = argparse.ArgumentParser(prog="UNIFIED_RSI_EXTENDED", description="True RSI Engine with L0-L5 Self-Modification")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3304,6 +3925,7 @@ def build_parser():
     e.add_argument("--save-every", type=int, default=5)
     e.add_argument("--state-dir", default=".rsi_state")
     e.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
+    e.add_argument("--mode", default="", choices=["", "solver", "algo"])
     e.set_defaults(fn=cmd_evolve)
 
     le = sub.add_parser("learner-evolve")
@@ -3328,7 +3950,7 @@ def build_parser():
     a.add_argument("--candidates", type=int, default=4)
     a.add_argument("--apply", action="store_true")
     a.add_argument("--state-dir", default=".rsi_state")
-    a.add_argument("--mode", default="", choices=["", "solver", "learner"])
+    a.add_argument("--mode", default="", choices=["", "solver", "learner", "algo"])
     a.set_defaults(fn=cmd_autopatch)
 
     r = sub.add_parser("rsi-loop")
@@ -3338,7 +3960,7 @@ def build_parser():
     r.add_argument("--population", type=int, default=64)
     r.add_argument("--universes", type=int, default=2)
     r.add_argument("--state-dir", default=".rsi_state")
-    r.add_argument("--mode", default="solver", choices=["solver", "learner"])
+    r.add_argument("--mode", default="solver", choices=["solver", "learner", "algo"])
     r.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
     r.set_defaults(fn=cmd_rsi_loop)
 
@@ -3366,6 +3988,15 @@ def build_parser():
     ts.add_argument("--state-dir", default=".rsi_state")
     ts.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
     ts.set_defaults(fn=cmd_task_switch)
+
+    tb = sub.add_parser("transfer-bench")
+    tb.add_argument("--from", dest="task_from", required=True)
+    tb.add_argument("--to", dest="task_to", required=True)
+    tb.add_argument("--budget", type=int, default=12)
+    tb.add_argument("--seed", type=int, default=1337)
+    tb.add_argument("--state-dir", default=".rsi_state")
+    tb.add_argument("--no-freeze-eval", action="store_true")
+    tb.set_defaults(fn=cmd_transfer_bench)
 
     rp = sub.add_parser("report")
     rp.add_argument("--state-dir", default=".rsi_state")

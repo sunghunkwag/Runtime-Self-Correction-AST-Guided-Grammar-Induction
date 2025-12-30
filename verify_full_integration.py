@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 sys.path.append(os.getcwd())
 try:
-    from UNIFIED_RSI_EXTENDED import Universe, MetaState, TaskSpec, FunctionLibrary, seed_genome, Genome, safe_exec_engine, EngineStrategy
+    from UNIFIED_RSI_EXTENDED import Universe, MetaState, TaskSpec, FunctionLibrary, seed_genome, Genome, safe_exec_engine, EngineStrategy, sample_batch
 except ImportError:
     from UNIFIED_RSI_EXTENDED import *
 
@@ -26,8 +26,12 @@ def verify():
     
     # Run 20 Generations
     print(f"Goal: Prove score improvement on {task.name}")
+    rng = random.Random(12345)
     for g in range(20):
-        log = univ.step(g, task, pop_size=30)
+        batch = sample_batch(rng, task)
+        if batch is None:
+            raise RuntimeError("Batch generation returned None")
+        log = univ.step(g, task, pop_size=30, batch=batch)
         score = log.get('score', float('inf'))
         best_scores.append(score)
         
