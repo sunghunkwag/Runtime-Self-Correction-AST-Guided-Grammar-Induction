@@ -4737,6 +4737,32 @@ def run_deep_autopatch(levels: List[int], candidates: int = 4, apply: bool = Fal
 
     return {"improved": False, "baseline": baseline, "results": results}
 
+
+def load_recent_scores(log_path: Path, n: int) -> List[float]:
+    scores = []
+    if not log_path.exists():
+        return scores
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            for line in lines[-n:]:
+                try:
+                    data = json.loads(line)
+                    if "score" in data:
+                        scores.append(float(data["score"]))
+                except:
+                    pass
+    except Exception:
+        pass
+    return scores
+
+
+def is_300s_stagnation(scores: List[float]) -> bool:
+    if len(scores) < 5:
+        return False
+    return all(s > 300.0 for s in scores)
+
+
 def run_rsi_loop(
     gens_per_round: int,
     rounds: int,
