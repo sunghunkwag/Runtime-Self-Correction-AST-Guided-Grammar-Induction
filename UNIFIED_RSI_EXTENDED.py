@@ -15,6 +15,7 @@ RSI Levels:
 CLI:
   python UNIFIED_RSI_EXTENDED.py selftest
   python UNIFIED_RSI_EXTENDED.py evolve --fresh --generations 100
+  python UNIFIED_RSI_EXTENDED.py evolve --fresh --generations 50 --mode program
   python UNIFIED_RSI_EXTENDED.py learner-evolve --fresh --generations 100
   python UNIFIED_RSI_EXTENDED.py meta-meta --episodes 20 --gens-per-episode 20
   python UNIFIED_RSI_EXTENDED.py task-switch --task-a poly2 --task-b piecewise
@@ -22,6 +23,13 @@ CLI:
   python UNIFIED_RSI_EXTENDED.py autopatch --levels 0,1,3 --apply
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 50 --rounds 10
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 20 --rounds 5 --mode learner
+
+CHANGELOG
+---------
+L0: Solver supports expression genomes and strict program-mode genomes (Assign/If/Return only).
+L1: RuleDSL controls mutation/crossover/novelty/acceptance/curriculum knobs per generation.
+L2: Meta-meta loop proposes RuleDSL patches and accepts only when meta-test transfer improves.
+Metrics: frozen train/hold/stress/test sets, per-gen logs, and transfer report (AUC/regret/recovery/gap).
 """
 from __future__ import annotations
 
@@ -335,6 +343,74 @@ def validate_code(code: str) -> Tuple[bool, str]:
         return (False, str(e))
 
 
+class ProgramValidator(ast.NodeVisitor):
+    """Strict program-mode validator: Assign/If/Return only, no loops or attributes."""
+
+    _allowed = [
+        ast.Module,
+        ast.FunctionDef,
+        ast.arguments,
+        ast.arg,
+        ast.Return,
+        ast.Assign,
+        ast.Name,
+        ast.Constant,
+        ast.Expr,
+        ast.If,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Compare,
+        ast.Call,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Subscript,
+        ast.Slice,
+        ast.Load,
+        ast.Store,
+        ast.IfExp,
+        ast.operator,
+        ast.boolop,
+        ast.unaryop,
+        ast.cmpop,
+    ]
+    if hasattr(ast, "Index"):
+        _allowed.append(ast.Index)
+
+    ALLOWED = tuple(_allowed)
+
+    def __init__(self):
+        self.ok, self.err = (True, None)
+
+    def visit(self, node):
+        if not isinstance(node, self.ALLOWED):
+            self.ok, self.err = (False, f"Forbidden program node: {type(node).__name__}")
+            return
+        if isinstance(node, ast.Name):
+            if node.id.startswith("__") or node.id in ("open", "eval", "exec", "compile", "__import__", "globals", "locals"):
+                self.ok, self.err = (False, f"Forbidden name: {node.id}")
+                return
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+                return
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Name) and node.value.id in SAFE_BUILTINS:
+                self.ok, self.err = (False, "Forbidden subscript on builtin")
+                return
+        super().generic_visit(node)
+
+
+def validate_program(code: str) -> Tuple[bool, str]:
+    try:
+        tree = ast.parse(code)
+        v = ProgramValidator()
+        v.visit(tree)
+        return (v.ok, v.err or "")
+    except Exception as e:
+        return (False, str(e))
+
+
 class ExprValidator(ast.NodeVisitor):
     """Validate a single expression (mode='eval') allowing only safe names and safe call forms."""
     ALLOWED = (
@@ -411,6 +487,31 @@ def node_count(code: str) -> int:
     except Exception:
         return 999
 
+def ast_depth(code: str) -> int:
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return 0
+    max_depth = 0
+    stack = [(tree, 1)]
+    while stack:
+        node, depth = stack.pop()
+        max_depth = max(max_depth, depth)
+        for child in ast.iter_child_nodes(node):
+            stack.append((child, depth + 1))
+    return max_depth
+
+
+def program_limits_ok(code: str, max_nodes: int = 200, max_depth: int = 20, max_locals: int = 16) -> bool:
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return False
+    nodes = sum(1 for _ in ast.walk(tree))
+    depth = ast_depth(code)
+    locals_set = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    return nodes <= max_nodes and depth <= max_depth and len(locals_set) <= max_locals
+
 
 def safe_exec(code: str, x: Any, timeout_steps: int = 1000, extra_env: Optional[Dict[str, Any]] = None) -> Any:
     """Execute candidate code with step limit. Code must define run(x). Returns Any (float/list/grid)."""
@@ -426,7 +527,7 @@ def safe_exec(code: str, x: Any, timeout_steps: int = 1000, extra_env: Optional[
         if extra_env:
             env.update(extra_env)
 
-        exec(compile(tree, "<lgp>", "exec"), env)
+        exec(compile(tree, "<lgp>", "exec"), {"__builtins__": {}}, env)
         if "run" not in env:
             return float("nan")
         return env["run"](x)
@@ -918,9 +1019,9 @@ class EvalResult:
     err: Optional[str] = None
 
 
-SCORE_W_HOLD = 0.49
-SCORE_W_STRESS = 0.28
-SCORE_W_TRAIN = 0.05
+SCORE_W_HOLD = 0.6
+SCORE_W_STRESS = 0.4
+SCORE_W_TRAIN = 0.0
 
 
 def calc_error(p: Any, t: Any) -> float:
@@ -1010,10 +1111,19 @@ def calc_heuristic_loss(p: Any, t: Any, task_name: str, x: Any = None) -> float:
     return calc_error(p, t) + penalty
 
 
-def mse_exec(code: str, xs: List[Any], ys: List[Any], task_name: str = "", extra_env: Optional[Dict[str, Any]] = None) -> Tuple[bool, float, str]:
-    ok, err = validate_code(code)
+def mse_exec(
+    code: str,
+    xs: List[Any],
+    ys: List[Any],
+    task_name: str = "",
+    extra_env: Optional[Dict[str, Any]] = None,
+    validator: Callable[[str], Tuple[bool, str]] = validate_code,
+) -> Tuple[bool, float, str]:
+    ok, err = validator(code)
     if not ok:
         return (False, float("inf"), err)
+    if validator == validate_program and not program_limits_ok(code):
+        return (False, float("inf"), "program_limits")
     try:
         total_err = 0.0
         for x, y in zip(xs, ys):
@@ -1029,7 +1139,14 @@ def mse_exec(code: str, xs: List[Any], ys: List[Any], task_name: str = "", extra
         return (False, float("inf"), f"{type(e).__name__}: {str(e)}")
 
 
-def evaluate(g: Genome, b: Batch, task_name: str, lam: float = 0.0001, extra_env: Optional[Dict[str, Any]] = None) -> EvalResult:
+def evaluate(
+    g: Genome,
+    b: Batch,
+    task_name: str,
+    lam: float = 0.0001,
+    extra_env: Optional[Dict[str, Any]] = None,
+    validator: Callable[[str], Tuple[bool, str]] = validate_code,
+) -> EvalResult:
     code = g.code
     ok1, tr, e1 = mse_exec(code, b.x_tr, b.y_tr, task_name, extra_env=extra_env)
     ok2, ho, e2 = mse_exec(code, b.x_ho, b.y_ho, task_name, extra_env=extra_env)
@@ -1096,7 +1213,7 @@ def evaluate_learner(
         nodes = node_count(learner.code)
         obj = objective(train, hold, stress, nodes)
         if not isinstance(obj, (int, float)) or not math.isfinite(obj):
-            obj = SCORE_W_HOLD * hold + SCORE_W_STRESS * stress + SCORE_W_TRAIN * train
+            obj = SCORE_W_HOLD * hold + SCORE_W_STRESS * stress
         score = float(obj) + lam * nodes
         ok = all(math.isfinite(v) for v in (train, hold, stress, test, score))
         return EvalResult(ok, train, hold, stress, test, nodes, score, None if ok else "nan")
@@ -1921,8 +2038,10 @@ class Universe:
     pool: List[Genome]
     library: FunctionLibrary
     discriminator: ProblemGenerator = field(default_factory=ProblemGenerator)
+    eval_mode: str = "solver"
     best: Optional[Genome] = None
     best_score: float = float("inf")
+    best_train: float = float("inf")
     best_hold: float = float("inf")
     best_stress: float = float("inf")
     best_test: float = float("inf")
@@ -1951,7 +2070,8 @@ class Universe:
         scored: List[Tuple[Genome, EvalResult]] = []
         all_results: List[Tuple[Genome, EvalResult]] = []
         for g in self.pool:
-            res = evaluate(g, batch, task.name, self.meta.complexity_lambda, extra_env=helper_env)
+            validator = validate_program if self.eval_mode == "program" else validate_code
+            res = evaluate(g, batch, task.name, self.meta.complexity_lambda, extra_env=helper_env, validator=validator)
             all_results.append((g, res))
             if res.ok:
                 scored.append((g, res))
@@ -2039,7 +2159,7 @@ class Universe:
             candidates.append(Genome(statements=new_stmts, parents=[parent.gid], op_tag=op_tag))
 
         # surrogate ranking
-        with_pred = [(c, SURROGATE.predict(c.code)) for c in candidates]
+        with_pred = [(c, SURROGATE.predict(c.code) + novelty_weight * rng.random()) for c in candidates]
         with_pred.sort(key=lambda x: x[1])
         selected_children = [c for c, _ in with_pred[:needed]]
 
@@ -2056,21 +2176,28 @@ class Universe:
         # acceptance update
         best_g, best_res = scored[0]
         old_score = self.best_score
-        accepted = best_res.score < self.best_score - 1e-9
+        accept_margin = 1e-9
+        if isinstance(policy_controls, ControlPacket):
+            accept_margin = max(accept_margin, policy_controls.acceptance_margin)
+        accepted = best_res.score < self.best_score - accept_margin
         if accepted:
             self.best = best_g
             self.best_score = best_res.score
+            self.best_train = best_res.train
             self.best_hold = best_res.hold
             self.best_stress = best_res.stress
             self.best_test = best_res.test
 
         op_used = best_g.op_tag.split(":")[1].split("|")[0] if ":" in best_g.op_tag else "unknown"
         self.meta.update(op_used, self.best_score - old_score, accepted)
+        if isinstance(policy_controls, ControlPacket) and self.meta.stuck_counter > policy_controls.patience:
+            self.meta.epsilon_explore = clamp(self.meta.epsilon_explore + 0.05, 0.05, 0.5)
 
         log = {
             "gen": gen,
             "accepted": accepted,
             "score": self.best_score,
+            "train": self.best_train,
             "hold": self.best_hold,
             "stress": self.best_stress,
             "test": self.best_test,
@@ -2091,12 +2218,14 @@ class Universe:
             "meta": asdict(self.meta),
             "best": asdict(self.best) if self.best else None,
             "best_score": self.best_score,
+            "best_train": self.best_train,
             "best_hold": self.best_hold,
             "best_stress": self.best_stress,
             "best_test": self.best_test,
             "pool": [asdict(g) for g in self.pool[:20]],
             "library": self.library.snapshot(),
             "history": self.history[-50:],
+            "eval_mode": self.eval_mode,
         }
 
     @staticmethod
@@ -2112,10 +2241,12 @@ class Universe:
         if s.get("best"):
             u.best = Genome(**s["best"])
         u.best_score = s.get("best_score", float("inf"))
+        u.best_train = s.get("best_train", float("inf"))
         u.best_hold = s.get("best_hold", float("inf"))
         u.best_stress = s.get("best_stress", float("inf"))
         u.best_test = s.get("best_test", float("inf"))
         u.history = s.get("history", [])
+        u.eval_mode = s.get("eval_mode", "solver")
         return u
 
 
@@ -2290,6 +2421,7 @@ class GlobalState:
     selected_uid: int = 0
     generations_done: int = 0
     mode: str = "solver"
+    rule_dsl: Optional[Dict[str, Any]] = None
 
 STATE_DIR = Path(".rsi_state")
 
@@ -2370,6 +2502,7 @@ def run_multiverse(
                 for i in range(n_univ)
             ]
         else:
+            eval_mode = "program" if mode == "program" else "solver"
             us = [
                 Universe(
                     uid=i,
@@ -2377,6 +2510,7 @@ def run_multiverse(
                     meta=MetaState(),
                     pool=[seed_genome(random.Random(seed + i), hint) for _ in range(pop)],
                     library=FunctionLibrary(),
+                    eval_mode=eval_mode,
                 )
                 for i in range(n_univ)
             ]
@@ -2989,6 +3123,21 @@ def run_deep_autopatch(levels: List[int], candidates: int = 4, apply: bool = Fal
 def run_rsi_loop(gens_per_round: int, rounds: int, levels: List[int], pop: int, n_univ: int, mode: str, freeze_eval: bool = True):
     task = TaskSpec()
     seed = int(time.time()) % 100000
+    if meta_meta:
+        run_meta_meta(
+            seed=seed,
+            episodes=rounds,
+            gens_per_episode=gens_per_round,
+            pop=pop,
+            n_univ=n_univ,
+            freeze_eval=freeze_eval,
+            state_dir=STATE_DIR,
+            eval_every=1,
+            few_shot_gens=max(3, gens_per_round // 2),
+        )
+        print(f"\n[RSI LOOP COMPLETE] {rounds} meta-meta rounds finished")
+        return
+
     for r in range(rounds):
         print(f"\n{'='*60}\n[RSI ROUND {r+1}/{rounds}]\n{'='*60}")
         print(f"[EVOLVE] {gens_per_round} generations...")
