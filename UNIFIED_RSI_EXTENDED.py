@@ -3376,6 +3376,8 @@ def build_parser():
 
 def main():
     parser = build_parser()
+    if len(sys.argv) == 1:
+        sys.argv.append("selftest")
     args = parser.parse_args()
     return args.fn(args)
 
