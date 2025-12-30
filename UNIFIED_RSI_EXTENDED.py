@@ -2420,7 +2420,7 @@ class EvalResult:
     err: Optional[str] = None
 
 
-SCORE_W_HOLD = 0.6
+SCORE_W_HOLD = 0.57
 SCORE_W_STRESS = 0.4
 SCORE_W_TRAIN = 0.0
 
