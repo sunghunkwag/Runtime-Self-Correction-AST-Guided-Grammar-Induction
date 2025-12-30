@@ -431,6 +431,12 @@ class CodeValidator(ast.NodeVisitor):
         ast.List,
         ast.Tuple,  # critical for tuple-assign (swap)
         ast.Dict,
+        ast.Set,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.Attribute,
         ast.Subscript,
         ast.Slice,
         ast.Load,
@@ -457,10 +463,14 @@ class CodeValidator(ast.NodeVisitor):
             if node.id.startswith("__") or node.id in ("open", "eval", "exec", "compile", "__import__", "globals", "locals"):
                 self.ok, self.err = (False, f"Forbidden name: {node.id}")
                 return
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                self.ok, self.err = (False, f"Forbidden attribute: {node.attr}")
+                return
         if isinstance(node, ast.Call):
             # forbid attribute calls (e.g., os.system)
-            if not isinstance(node.func, ast.Name):
-                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+            if not isinstance(node.func, (ast.Name, ast.Attribute)):
+                self.ok, self.err = (False, "Forbidden call form (non-Name/Attribute callee)")
                 return
         if isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Name) and node.value.id in SAFE_BUILTINS:
@@ -499,6 +509,12 @@ class ProgramValidator(ast.NodeVisitor):
         ast.List,
         ast.Tuple,
         ast.Dict,
+        ast.Set,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.Attribute,
         ast.Subscript,
         ast.Slice,
         ast.Load,
@@ -525,9 +541,13 @@ class ProgramValidator(ast.NodeVisitor):
             if node.id.startswith("__") or node.id in ("open", "eval", "exec", "compile", "__import__", "globals", "locals"):
                 self.ok, self.err = (False, f"Forbidden name: {node.id}")
                 return
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                self.ok, self.err = (False, f"Forbidden attribute: {node.attr}")
+                return
         if isinstance(node, ast.Call):
-            if not isinstance(node.func, ast.Name):
-                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+            if not isinstance(node.func, (ast.Name, ast.Attribute)):
+                self.ok, self.err = (False, "Forbidden call form (non-Name/Attribute callee)")
                 return
         if isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Name) and node.value.id in SAFE_BUILTINS:
@@ -547,7 +567,7 @@ def validate_program(code: str) -> Tuple[bool, str]:
 
 
 class AlgoProgramValidator(ast.NodeVisitor):
-    """Algo-mode validator with bounded structure and no attribute access."""
+    """Algo-mode validator with bounded structure and constrained attribute access."""
 
     _allowed = [
         ast.Module,
@@ -568,6 +588,15 @@ class AlgoProgramValidator(ast.NodeVisitor):
         ast.BoolOp,
         ast.IfExp,
         ast.Call,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Set,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.Attribute,
         ast.Subscript,
         ast.Load,
         ast.Store,
@@ -589,27 +618,28 @@ class AlgoProgramValidator(ast.NodeVisitor):
             self.ok, self.err = (False, f"Forbidden: {type(node).__name__}")
             return
         if isinstance(node, ast.Attribute):
-            self.ok, self.err = (False, "Forbidden attribute access")
-            return
+            if node.attr.startswith("__"):
+                self.ok, self.err = (False, f"Forbidden attribute: {node.attr}")
+                return
         if isinstance(node, ast.Name):
             if node.id.startswith("__") or node.id in ("open", "eval", "exec", "compile", "__import__", "globals", "locals"):
                 self.ok, self.err = (False, f"Forbidden name: {node.id}")
                 return
         if isinstance(node, ast.Call):
-            if not isinstance(node.func, ast.Name):
-                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+            if not isinstance(node.func, (ast.Name, ast.Attribute)):
+                self.ok, self.err = (False, "Forbidden call form (non-Name/Attribute callee)")
                 return
         super().generic_visit(node)
 
 
 def algo_program_limits_ok(
     code: str,
-    max_nodes: int = 280,
-    max_depth: int = 24,
-    max_funcs: int = 4,
-    max_locals: int = 24,
-    max_consts: int = 64,
-    max_subscripts: int = 32,
+    max_nodes: int = 420,
+    max_depth: int = 32,
+    max_funcs: int = 8,
+    max_locals: int = 48,
+    max_consts: int = 128,
+    max_subscripts: int = 64,
 ) -> bool:
     try:
         tree = ast.parse(code)
@@ -651,9 +681,12 @@ class ExprValidator(ast.NodeVisitor):
         ast.Expression,
         ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp,
         ast.Call,
+        ast.Attribute,
         ast.Name, ast.Load,
         ast.Constant,
         ast.List, ast.Tuple, ast.Dict,
+        ast.Set,
+        ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
         ast.Subscript, ast.Slice,
         ast.operator, ast.unaryop, ast.boolop, ast.cmpop,
     )
@@ -674,9 +707,13 @@ class ExprValidator(ast.NodeVisitor):
             if node.id not in self.allowed_names:
                 self.ok, self.err = (False, f"Unknown name: {node.id}")
                 return
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                self.ok, self.err = (False, f"Forbidden attribute: {node.attr}")
+                return
         if isinstance(node, ast.Call):
-            if not isinstance(node.func, ast.Name):
-                self.ok, self.err = (False, "Forbidden call form (non-Name callee)")
+            if not isinstance(node.func, (ast.Name, ast.Attribute)):
+                self.ok, self.err = (False, "Forbidden call form (non-Name/Attribute callee)")
                 return
         if isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Name) and node.value.id in SAFE_BUILTINS:
@@ -1013,6 +1050,9 @@ ALGO_TASK_NAMES = {
     "coin_change_min",
     "substring_find",
     "unique_count",
+    "lis_length",
+    "min_path_sum",
+    "edit_distance",
 }
 
 ALGO_COUNTEREXAMPLES: Dict[str, List[Tuple[Any, Any]]] = {name: [] for name in ALGO_TASK_NAMES}
@@ -1139,6 +1179,48 @@ def _algo_task_data(name: str, rng: random.Random, n: int, stress: bool = False)
             arr = _gen_int_list(rng, 3, 10 if not stress else 14, 1, 6)
             x = arr
             y = len(set(arr))
+        elif name == "lis_length":
+            arr = _gen_int_list(rng, 3, 10 if not stress else 14, -5, 9)
+            dp = [1 for _ in arr]
+            for i in range(len(arr)):
+                for j in range(i):
+                    if arr[j] < arr[i]:
+                        dp[i] = max(dp[i], dp[j] + 1)
+            x = arr
+            y = max(dp) if dp else 0
+        elif name == "min_path_sum":
+            rows = rng.randint(2, 5 if not stress else 7)
+            cols = rng.randint(2, 5 if not stress else 7)
+            grid = [[rng.randint(0, 9) for _ in range(cols)] for _ in range(rows)]
+            dp = [[0 for _ in range(cols)] for _ in range(rows)]
+            dp[0][0] = grid[0][0]
+            for r in range(1, rows):
+                dp[r][0] = dp[r - 1][0] + grid[r][0]
+            for c in range(1, cols):
+                dp[0][c] = dp[0][c - 1] + grid[0][c]
+            for r in range(1, rows):
+                for c in range(1, cols):
+                    dp[r][c] = min(dp[r - 1][c], dp[r][c - 1]) + grid[r][c]
+            x = grid
+            y = dp[-1][-1]
+        elif name == "edit_distance":
+            a = _gen_int_list(rng, 2, 6 if not stress else 8, 0, 4)
+            b = _gen_int_list(rng, 2, 6 if not stress else 8, 0, 4)
+            dp = [[0 for _ in range(len(b) + 1)] for _ in range(len(a) + 1)]
+            for i in range(len(a) + 1):
+                dp[i][0] = i
+            for j in range(len(b) + 1):
+                dp[0][j] = j
+            for i in range(1, len(a) + 1):
+                for j in range(1, len(b) + 1):
+                    cost = 0 if a[i - 1] == b[j - 1] else 1
+                    dp[i][j] = min(
+                        dp[i - 1][j] + 1,
+                        dp[i][j - 1] + 1,
+                        dp[i - 1][j - 1] + cost,
+                    )
+            x = [a, b]
+            y = dp[-1][-1]
         else:
             x = []
             y = 0
@@ -1351,10 +1433,13 @@ def sample_batch(rng: random.Random, t: TaskSpec) -> Optional[Batch]:
 def task_suite(seed: int) -> List[TaskSpec]:
     base = [
         TaskSpec(name="poly2", x_min=-3.0, x_max=3.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
+        TaskSpec(name="poly3", x_min=-4.0, x_max=4.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
         TaskSpec(name="piecewise", x_min=-4.0, x_max=4.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
         TaskSpec(name="rational", x_min=-5.0, x_max=5.0, n_train=96, n_hold=64, n_test=64, noise=0.02),
         TaskSpec(name="switching", x_min=-3.0, x_max=3.0, n_train=96, n_hold=64, n_test=64, noise=0.0),
         TaskSpec(name="classification", x_min=-4.0, x_max=4.0, n_train=96, n_hold=64, n_test=64, noise=0.0),
+        TaskSpec(name="sinmix", x_min=-6.0, x_max=6.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
+        TaskSpec(name="absline", x_min=-6.0, x_max=6.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
     ]
     rng = random.Random(seed)
     rng.shuffle(base)
@@ -3284,8 +3369,23 @@ def run_meta_meta(
         if (episode + 1) % eval_every == 0:
             transfer_scores = []
             for task_test in meta_test:
-                hist, _ = run_policy_episode(
+                warmup_task = rng.choice(meta_train) if meta_train else task_test
+                warmup_gens = max(1, few_shot_gens // 2)
+                run_policy_episode(
                     seed + episode * 73,
+                    warmup_task,
+                    policy,
+                    warmup_gens,
+                    pop,
+                    n_univ,
+                    freeze_eval,
+                    archive,
+                    logger,
+                    mode="meta-transfer-train",
+                    update_archive=True,
+                )
+                hist, _ = run_policy_episode(
+                    seed + episode * 73 + 1,
                     task_test,
                     policy,
                     few_shot_gens,
@@ -3294,7 +3394,7 @@ def run_meta_meta(
                     freeze_eval,
                     archive,
                     logger,
-                    mode="meta-test",
+                    mode="meta-transfer-test",
                     update_archive=False,
                 )
                 transfer_scores.append(compute_transfer_metrics(hist, window=few_shot_gens)["auc"])
@@ -3469,7 +3569,15 @@ def transfer_bench(
 # Self-modification (AutoPatch)
 # ---------------------------
 
-PATCH_LEVELS = {0: "hyperparameter", 1: "op_weight", 2: "operator_toggle", 3: "eval_weight", 4: "operator_persist", 5: "meta_logic"}
+PATCH_LEVELS = {
+    0: "hyperparameter",
+    1: "op_weight",
+    2: "operator_toggle",
+    3: "eval_weight",
+    4: "operator_persist",
+    5: "meta_logic",
+    6: "dsl_extension",
+}
 
 @dataclass
 class PatchPlan:
@@ -3537,6 +3645,28 @@ def _rewrite_operators_block(src: str, new_lib: Dict) -> str:
     lines.append("}")
     new_dict = "\n".join(lines)
     return src[: match.start()] + prefix + new_dict + suffix + src[match.end():]
+
+def _patch_safe_funcs(src: str, name: str, expr: str) -> Tuple[bool, str]:
+    try:
+        mod = ast.parse(src)
+        patched = False
+        for node in ast.walk(mod):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == "SAFE_FUNCS" and isinstance(node.value, ast.Dict):
+                        keys = node.value.keys
+                        values = node.value.values
+                        if any(isinstance(k, ast.Constant) and k.value == name for k in keys):
+                            return (False, src)
+                        keys.append(ast.Constant(value=name))
+                        values.append(ast.parse(expr, mode="eval").body)
+                        patched = True
+        if not patched:
+            return (False, src)
+        ast.fix_missing_locations(mod)
+        return (True, ast.unparse(mod))
+    except Exception:
+        return (False, src)
 
 def propose_patches(gs: GlobalState, levels: List[int]) -> List[PatchPlan]:
     src = _read_self()
@@ -3635,6 +3765,29 @@ def propose_patches(gs: GlobalState, levels: List[int]) -> List[PatchPlan]:
                     sha256(new_pat)[:8],
                     "L5: elite ratio change",
                     "Meta: selection pressure",
+                    new_src,
+                    unified_diff(src, new_src, "script.py"),
+                ))
+                break
+
+    # L6: extend DSL primitives (new safe operators)
+    if 6 in levels:
+        candidates = [
+            ("relu", "lambda x: x if x > 0 else 0"),
+            ("clip", "lambda x: clamp(x, -1.0, 1.0)"),
+            ("cube", "lambda x: x * x * x"),
+        ]
+        rng.shuffle(candidates)
+        for name, expr in candidates:
+            if name in SAFE_FUNCS:
+                continue
+            ok, new_src = _patch_safe_funcs(src, name, expr)
+            if ok and new_src != src:
+                plans.append(PatchPlan(
+                    6,
+                    sha256(f"{name}:{expr}")[:8],
+                    f"L6: add SAFE_FUNCS.{name}",
+                    "Extend DSL with new primitive operator",
                     new_src,
                     unified_diff(src, new_src, "script.py"),
                 ))
