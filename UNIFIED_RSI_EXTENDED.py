@@ -4514,9 +4514,77 @@ def _save_rsi_archive(path: Path, archive: Dict[str, Any]) -> None:
     safe_mkdir(path.parent)
     path.write_text(json.dumps(archive, indent=2), encoding="utf-8")
 
+    script = Path(__file__).resolve()
+    baseline = probe_run(script, mode, task_name)
+    print(f"[AUTOPATCH L{levels}] Baseline: {baseline:.4f}")
+
+    plans = propose_patches(gs, levels)[:candidates]
+    if not plans:
+        return {"error": "No patches generated"}
+
+    results = []
+    best_plan, best_score = (None, baseline)
+
+    for p in plans:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+            f.write(p.new_source)
+            tmp = Path(f.name)
+        try:
+            score = probe_run(tmp, mode, task_name)
+            improved = score < baseline - 1e-6
+            results.append({"level": p.level, "id": p.patch_id, "title": p.title, "score": score, "improved": improved})
+            print(f"[L{p.level}] {p.patch_id}: {p.title} -> {score:.4f} {'OK' if improved else 'FAIL'}")
+            if improved and score < best_score:
+                best_score, best_plan = score, p
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    if best_plan and apply:
+        backup = script.with_suffix(".bak")
+        if not backup.exists():
+            backup.write_text(script.read_text(encoding="utf-8"), encoding="utf-8")
+        script.write_text(best_plan.new_source, encoding="utf-8")
+        print(f"[OK] Applied L{best_plan.level} patch: {best_plan.title}")
+        return {"applied": best_plan.patch_id, "level": best_plan.level, "score": best_score, "results": results}
+
+    if best_plan:
+        out = STATE_DIR / "patched.py"
+        out.write_text(best_plan.new_source, encoding="utf-8")
+        print(f"[OK] Best patch saved to {out}")
+        return {"best": best_plan.patch_id, "score": best_score, "file": str(out), "results": results}
+
+    return {"improved": False, "baseline": baseline, "results": results}
+
+
+def load_recent_scores(log_path: Path, n: int) -> List[float]:
+    scores = []
+    if not log_path.exists():
+        return scores
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            for line in lines[-n:]:
+                try:
+                    data = json.loads(line)
+                    if "score" in data:
+                        scores.append(float(data["score"]))
+                except:
+                    pass
+    except Exception:
+        pass
+    return scores
+
+
+def is_300s_stagnation(scores: List[float]) -> bool:
+    if len(scores) < 5:
+        return False
+    return all(s > 300.0 for s in scores)
+
+
 def run_rsi_loop(
     gens_per_round: int,
     rounds: int,
+    levels: List[int],
     pop: int,
     n_univ: int,
     mode: str,
@@ -4552,95 +4620,34 @@ def run_rsi_loop(
     for r in range(rounds):
         print(f"\n{'='*60}\n[RSI ROUND {r+1}/{rounds}]\n{'='*60}")
         print(f"[EVOLVE] {gens_per_round} generations...")
-        gs = run_multiverse(seed, task, gens_per_round, pop, n_univ, resume=(r > 0), mode=mode, freeze_eval=freeze_eval)
-
-        resampled = get_task_batch(task, seed + (r + 1) * 101, freeze_eval=False, gen=r)
-        if resampled is None:
-            print("[RSI] No batch available; skipping round.")
-            continue
-        batch = _merge_stress(fixed_batch, resampled)
-
-        current = archive.get("current")
-        if current:
-            current_code = current["code"]
-            current_genome = LearnerGenome(**current["genome"]) if mode == "learner" else Genome(**current["genome"])
-            ok_gate, gate_err = _hard_gate_ok(current_code, batch, mode, task.name)
-            current_eval = _evaluate_candidate(current_genome, batch, mode, task.name)
-            if (not ok_gate) or (not current_eval.ok) or current_eval.stress > STRESS_MAX:
-                print(f"[ROLLBACK] Current best failed gates ({gate_err or current_eval.err}). Rolling back.")
-                entries = archive.get("entries", [])
-                if entries:
-                    archive["current"] = entries[-1]
-                    archive["entries"] = entries[:-1]
-                else:
-                    archive["current"] = None
-                archive["consecutive"] = 0
-                _save_rsi_archive(archive_path, archive)
-                continue
-            archive["consecutive"] = archive.get("consecutive", 0) + 1
-            if archive["consecutive"] >= RSI_CONFIRM_ROUNDS:
-                current["confirmed"] = True
-
-        best_snapshot = gs.universes[0] if gs.universes else {}
-        best_data = best_snapshot.get("best")
-        if not best_data:
-            print("[RSI] No candidate found this round.")
-            continue
-        candidate = LearnerGenome(**best_data) if mode == "learner" else Genome(**best_data)
-        candidate_code = candidate.code
-
-        ok_gate, gate_err = _hard_gate_ok(candidate_code, batch, mode, task.name)
-        if not ok_gate:
-            print(f"[GATE] Candidate rejected: {gate_err}")
-            continue
-
-        cand_eval = _evaluate_candidate(candidate, batch, mode, task.name)
-        if not cand_eval.ok or cand_eval.stress > STRESS_MAX:
-            print(f"[GATE] Candidate rejected: {cand_eval.err or 'stress_max'}")
-            continue
-
-        if current:
-            current_code = current["code"]
-            current_genome = LearnerGenome(**current["genome"]) if mode == "learner" else Genome(**current["genome"])
-            current_eval = _evaluate_candidate(current_genome, batch, mode, task.name)
-            if not (cand_eval.hold < current_eval.hold and cand_eval.stress < current_eval.stress):
-                print("[ACCEPT] Candidate not strictly better on holdout and stress.")
-                continue
-
-        verify_batch = get_task_batch(task, seed + (r + 1) * 911, freeze_eval=False, gen=r + 1)
-        if verify_batch is None:
-            print("[RSI] No verification batch; skipping.")
-            continue
-        verify = _merge_stress(fixed_batch, verify_batch)
-        verify_eval = _evaluate_candidate(candidate, verify, mode, task.name)
-        if not verify_eval.ok or verify_eval.stress > STRESS_MAX:
-            print("[VERIFY] Candidate failed verification gates.")
-            continue
-        if current:
-            current_genome = LearnerGenome(**current["genome"]) if mode == "learner" else Genome(**current["genome"])
-            current_verify = _evaluate_candidate(current_genome, verify, mode, task.name)
-            if not (verify_eval.hold < current_verify.hold and verify_eval.stress < current_verify.stress):
-                print("[VERIFY] Candidate failed strict improvement on resampled holdout/stress.")
-                continue
-
-        archive_entry = {
-            "round": r + 1,
-            "gid": candidate.gid,
-            "code": candidate_code,
-            "hold": cand_eval.hold,
-            "stress": cand_eval.stress,
-            "genome": asdict(candidate),
-            "confirmed": False,
-        }
-        if archive.get("current"):
-            archive.setdefault("entries", []).append(archive["current"])
-        archive["current"] = archive_entry
-        archive["consecutive"] = 1
-        _save_rsi_archive(archive_path, archive)
-        print("[RSI] Accepted new best after verification.")
-
-        if archive["consecutive"] >= RSI_CONFIRM_ROUNDS:
-            print(f"[RSI] Best confirmed for {archive['consecutive']} consecutive rounds.")
+        run_multiverse(seed, task, gens_per_round, pop, n_univ, resume=(r > 0), mode=mode, freeze_eval=freeze_eval)
+        recent_scores = load_recent_scores(STATE_DIR / "run_log.jsonl", 5)
+        forced_applied = False
+        if is_300s_stagnation(recent_scores):
+            print("[STAGNATION] 300s plateau detected for >=5 gens. Forcing L1/L3 autopatch.")
+            forced = run_deep_autopatch([1, 3], candidates=4, apply=True, mode=mode)
+            forced_applied = bool(forced.get("applied"))
+            if forced_applied:
+                print("[RSI] Self-modified via forced L1/L3 patch.")
+            else:
+                print("[STAGNATION] Forced patch rejected. Launching meta-meta acceleration.")
+                run_meta_meta(
+                    seed=seed,
+                    episodes=1,
+                    gens_per_episode=gens_per_round,
+                    pop=pop,
+                    n_univ=n_univ,
+                    freeze_eval=freeze_eval,
+                    state_dir=STATE_DIR,
+                    eval_every=1,
+                    few_shot_gens=max(3, gens_per_round // 2),
+                )
+                print("[STAGNATION] Meta-meta episode completed.")
+        if not forced_applied:
+            print(f"[AUTOPATCH] Trying L{levels}...")
+            result = run_deep_autopatch(levels, candidates=4, apply=True, mode=mode)
+            if result.get("applied"):
+                print("[RSI] Self-modified! Reloading...")
 
     print(f"\n[RSI LOOP COMPLETE] {rounds} rounds finished")
 
@@ -4731,9 +4738,11 @@ def cmd_best(args):
 def cmd_rsi_loop(args):
     global STATE_DIR
     STATE_DIR = Path(args.state_dir)
+    levels = [int(l) for l in args.levels.split(",") if l.strip()]
     run_rsi_loop(
         args.generations,
         args.rounds,
+        levels,
         args.population,
         args.universes,
         mode=args.mode,
