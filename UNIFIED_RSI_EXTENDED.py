@@ -2588,10 +2588,15 @@ def evaluate_algo(
     ok2, ho_err, ho_steps, ho_timeout, _, e2 = algo_exec(code, b.x_ho, b.y_ho, task_name, counterexamples)
     ok3, st_err, st_steps, st_timeout, _, e3 = algo_exec(code, b.x_st, b.y_st, task_name, counterexamples)
     ok4, te_err, te_steps, te_timeout, _, e4 = algo_exec(code, b.x_te, b.y_te, task_name, counterexamples)
-    ok = ok1 and ok2 and ok3 and ok4
+    ok = ok1 and ok2 and ok3 and ok4 and all(math.isfinite(v) for v in (tr_err, ho_err, st_err, te_err))
     nodes = node_count(code)
     step_penalty = 0.0001 * (tr_steps + ho_steps + st_steps + te_steps)
     timeout_penalty = 0.5 * (tr_timeout + ho_timeout + st_timeout + te_timeout)
+    if not ok:
+        return EvalResult(False, tr_err, ho_err, st_err, te_err, nodes, float("inf"), e1 or e2 or e3 or e4 or "nan")
+    # Hard cutoff: stress overflows are rejected before any score aggregation.
+    if st_err > STRESS_MAX:
+        return EvalResult(False, tr_err, ho_err, st_err, te_err, nodes, float("inf"), "stress_overflow")
     score = SCORE_W_HOLD * ho_err + SCORE_W_STRESS * st_err + SCORE_W_TRAIN * tr_err + lam * nodes + step_penalty + timeout_penalty
     err = e1 or e2 or e3 or e4
     return EvalResult(ok, tr_err, ho_err, st_err, te_err, nodes, score, err or None)
@@ -2612,6 +2617,11 @@ def evaluate(
     ok4, te, e4 = mse_exec(code, b.x_te, b.y_te, task_name, extra_env=extra_env)
     ok = ok1 and ok2 and ok3 and ok4 and all(math.isfinite(v) for v in (tr, ho, st, te))
     nodes = node_count(code)
+    if not ok:
+        return EvalResult(False, tr, ho, st, te, nodes, float("inf"), e1 or e2 or e3 or e4 or "nan")
+    # Hard cutoff: stress overflows are rejected before any score aggregation.
+    if st > STRESS_MAX:
+        return EvalResult(False, tr, ho, st, te, nodes, float("inf"), "stress_overflow")
     score = SCORE_W_HOLD * ho + SCORE_W_STRESS * st + SCORE_W_TRAIN * tr + lam * nodes
     err = e1 or e2 or e3 or e4
     return EvalResult(ok, tr, ho, st, te, nodes, score, err or None)
@@ -2669,6 +2679,12 @@ def evaluate_learner(
         stress = run_eval(b.x_st, b.y_st, do_update=False)
         test = run_eval(b.x_te, b.y_te, do_update=False)
         nodes = node_count(learner.code)
+        ok = all(math.isfinite(v) for v in (train, hold, stress, test))
+        if not ok:
+            return EvalResult(False, train, hold, stress, test, nodes, float("inf"), "nan")
+        # Hard cutoff: stress overflows are rejected before any score aggregation.
+        if stress > STRESS_MAX:
+            return EvalResult(False, train, hold, stress, test, nodes, float("inf"), "stress_overflow")
         obj = objective(train, hold, stress, nodes)
         if not isinstance(obj, (int, float)) or not math.isfinite(obj):
             obj = SCORE_W_HOLD * hold + SCORE_W_STRESS * stress
@@ -3535,6 +3551,27 @@ class Universe:
         scored: List[Tuple[Genome, EvalResult]] = []
         all_results: List[Tuple[Genome, EvalResult]] = []
         for g in self.pool:
+            # Hard gate: enforce input dependence before any scoring/selection.
+            gate_ok, gate_reason = _hard_gate_ok(
+                g.code,
+                batch,
+                self.eval_mode if self.eval_mode != "program" else "solver",
+                task.name,
+                extra_env=helper_env,
+            )
+            if not gate_ok:
+                res = EvalResult(
+                    False,
+                    float("inf"),
+                    float("inf"),
+                    float("inf"),
+                    float("inf"),
+                    node_count(g.code),
+                    float("inf"),
+                    f"hard_gate:{gate_reason}",
+                )
+                all_results.append((g, res))
+                continue
             if self.eval_mode == "algo":
                 res = evaluate_algo(g, batch, task.name, self.meta.complexity_lambda)
             else:
@@ -3744,6 +3781,21 @@ class UniverseLearner:
         scored: List[Tuple[LearnerGenome, EvalResult]] = []
         all_results: List[Tuple[LearnerGenome, EvalResult]] = []
         for g in self.pool:
+            # Hard gate: enforce input dependence before any scoring/selection.
+            gate_ok, gate_reason = _hard_gate_ok(g.code, batch, "learner", task.name)
+            if not gate_ok:
+                res = EvalResult(
+                    False,
+                    float("inf"),
+                    float("inf"),
+                    float("inf"),
+                    float("inf"),
+                    node_count(g.code),
+                    float("inf"),
+                    f"hard_gate:{gate_reason}",
+                )
+                all_results.append((g, res))
+                continue
             res = evaluate_learner(g, batch, task.name, self.meta.adapt_steps, self.meta.complexity_lambda)
             all_results.append((g, res))
             if res.ok:
@@ -4415,6 +4467,7 @@ def transfer_bench(
 # ---------------------------
 
 STRESS_MAX = 1_000_000.0
+OUTPUT_VARIANCE_EPS = 1e-6
 RSI_CONFIRM_ROUNDS = 2
 
 def _outputs_constant(outputs: List[Any], tol: float = 1e-9) -> bool:
@@ -4425,18 +4478,32 @@ def _outputs_constant(outputs: List[Any], tol: float = 1e-9) -> bool:
         return all(isinstance(o, (int, float)) and abs(o - first) <= tol for o in outputs[1:])
     return all(_algo_equal(o, first) for o in outputs[1:])
 
-def _piecewise_constant(outputs: List[Any], max_unique: int = 2) -> bool:
-    if not outputs:
-        return True
+def _unique_output_count(outputs: List[Any]) -> int:
     uniques: List[Any] = []
     for out in outputs:
         if not any(_algo_equal(out, seen) for seen in uniques):
             uniques.append(out)
-        if len(uniques) > max_unique:
-            return False
-    return True
+    return len(uniques)
 
-def _collect_outputs(code: str, xs: List[Any], mode: str, extra_env: Optional[Dict[str, Any]] = None) -> Tuple[bool, List[Any], str]:
+def _piecewise_constant(outputs: List[Any], max_unique: int = 2) -> bool:
+    if not outputs:
+        return True
+    return _unique_output_count(outputs) <= max_unique
+
+def _variance_low(outputs: List[Any], eps: float = OUTPUT_VARIANCE_EPS) -> bool:
+    if not outputs or not all(isinstance(o, (int, float)) for o in outputs):
+        return False
+    vals = [float(o) for o in outputs]
+    mean = sum(vals) / len(vals)
+    var = sum((v - mean) ** 2 for v in vals) / max(1, len(vals))
+    return var <= eps
+
+def _collect_outputs(
+    code: str,
+    xs: List[Any],
+    mode: str,
+    extra_env: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, List[Any], str]:
     outputs: List[Any] = []
     if mode == "learner":
         env = safe_load_module(code)
@@ -4470,25 +4537,59 @@ def _collect_outputs(code: str, xs: List[Any], mode: str, extra_env: Optional[Di
         outputs.append(out)
     return True, outputs, ""
 
-def _hard_gate_ok(code: str, batch: Batch, mode: str, task_name: str) -> Tuple[bool, str]:
+def _hard_gate_ok(
+    code: str,
+    batch: Batch,
+    mode: str,
+    task_name: str,
+    extra_env: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
     xs = batch.x_ho[:8] if batch.x_ho else batch.x_tr[:8]
     if not xs:
         return False, "no_inputs"
-    ok, outputs, err = _collect_outputs(code, xs, mode)
+    ok, outputs, err = _collect_outputs(code, xs, mode, extra_env=extra_env)
     if not ok:
         return False, err
+    # Hard gate: reject any non-finite numeric output (timeouts/NaNs are disqualifying).
+    for out in outputs:
+        if isinstance(out, (int, float)) and not math.isfinite(out):
+            return False, "non_finite_output"
+    # Hard gate: reject constant or near-constant outputs to enforce input dependence.
     if _outputs_constant(outputs):
         return False, "constant_output"
+    # Hard gate: prevent piecewise-constant or low-diversity output hacks.
     if _piecewise_constant(outputs):
         return False, "piecewise_constant"
+    # Hard gate: reject numerically low-variance responses (e.g., tiny jitter around a constant).
+    if _variance_low(outputs):
+        return False, "low_variance_output"
     return True, ""
 
-def _evaluate_candidate(g: Union[Genome, LearnerGenome], batch: Batch, mode: str, task_name: str) -> EvalResult:
+def _evaluate_candidate(
+    g: Union[Genome, LearnerGenome],
+    batch: Batch,
+    mode: str,
+    task_name: str,
+    extra_env: Optional[Dict[str, Any]] = None,
+    validator: Callable[[str], Tuple[bool, str]] = validate_code,
+) -> EvalResult:
+    gate_ok, gate_reason = _hard_gate_ok(g.code, batch, mode, task_name, extra_env=extra_env)
+    if not gate_ok:
+        return EvalResult(
+            False,
+            float("inf"),
+            float("inf"),
+            float("inf"),
+            float("inf"),
+            node_count(g.code),
+            float("inf"),
+            f"hard_gate:{gate_reason}",
+        )
     if mode == "learner":
         return evaluate_learner(g, batch, task_name)
     if mode == "algo":
         return evaluate_algo(g, batch, task_name)
-    return evaluate(g, batch, task_name)
+    return evaluate(g, batch, task_name, extra_env=extra_env, validator=validator)
 
 def _merge_stress(fixed: Batch, resampled: Batch) -> Batch:
     return Batch(
@@ -4620,7 +4721,24 @@ def run_rsi_loop(
     for r in range(rounds):
         print(f"\n{'='*60}\n[RSI ROUND {r+1}/{rounds}]\n{'='*60}")
         print(f"[EVOLVE] {gens_per_round} generations...")
-        run_multiverse(seed, task, gens_per_round, pop, n_univ, resume=(r > 0), mode=mode, freeze_eval=freeze_eval)
+        gs = run_multiverse(seed, task, gens_per_round, pop, n_univ, resume=(r > 0), mode=mode, freeze_eval=freeze_eval)
+        best_snapshot = next((u for u in gs.universes if u.get("uid") == gs.selected_uid), None)
+        best_data = (best_snapshot or {}).get("best")
+        best_code = None
+        if isinstance(best_data, dict):
+            if mode == "learner":
+                best_code = LearnerGenome(**best_data).code
+            else:
+                best_code = Genome(**best_data).code
+        if best_code and best_code != "none":
+            gate_ok, gate_reason = _hard_gate_ok(best_code, fixed_batch, mode, task.name)
+            if not gate_ok:
+                print(f"[RSI] Hard gate failed for best candidate ({gate_reason}); rejecting before scoring/autopatch.")
+                archive["current"] = None
+                archive["consecutive"] = 0
+                archive["entries"] = []
+                _save_rsi_archive(archive_path, archive)
+                continue
         recent_scores = load_recent_scores(STATE_DIR / "run_log.jsonl", 5)
         forced_applied = False
         if is_300s_stagnation(recent_scores):
