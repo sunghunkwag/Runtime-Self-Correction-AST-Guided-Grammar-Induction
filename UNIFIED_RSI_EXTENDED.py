@@ -1899,6 +1899,8 @@ class TaskSpec:
             family = "classification"
         elif self.name in ("sort", "reverse", "filter", "max", "even_reverse_sort"):
             family = "list"
+        elif self.name == "self_audit":
+            family = "self_audit"
         elif self.name in ALGO_TASK_NAMES:
             family = "algo"
         elif self.name.startswith("arc_"):
@@ -1906,7 +1908,9 @@ class TaskSpec:
         self.descriptor = TaskDescriptor(
             name=self.name,
             family=family,
-            input_kind="list" if family in ("list", "algo") else ("grid" if family == "arc" else "scalar"),
+            input_kind="vector"
+            if family == "self_audit"
+            else ("list" if family in ("list", "algo") else ("grid" if family == "arc" else "scalar")),
             output_kind="class" if family == "classification" else "scalar",
             n_train=self.n_train,
             n_hold=self.n_hold,
@@ -2194,6 +2198,34 @@ class Batch:
     x_te: List[Any]
     y_te: List[Any]
 
+
+def _best_code_snapshot() -> str:
+    try:
+        state = load_state()
+    except Exception:
+        state = None
+    if not state or not state.universes:
+        return "def run(x):\n    return x\n"
+    target = next((u for u in state.universes if u.get("uid") == state.selected_uid), None)
+    if not target:
+        target = state.universes[0]
+    best = target.get("best")
+    if not best:
+        return "def run(x):\n    return x\n"
+    if state.mode == "learner":
+        return LearnerGenome(**best).code
+    return Genome(**best).code
+
+
+def _code_features(code: str) -> List[float]:
+    return [
+        float(len(code)),
+        float(node_count(code)),
+        float(code.count("if ")),
+        float(code.count("while ")),
+        float(code.count("return ")),
+    ]
+
 def sample_batch(rng: random.Random, t: TaskSpec) -> Optional[Batch]:
     # function target
     if t.target_code:
@@ -2202,6 +2234,32 @@ def sample_batch(rng: random.Random, t: TaskSpec) -> Optional[Batch]:
         f = TARGET_FNS.get(t.name) or (lambda x: sorted(x))
     else:
         f = TARGET_FNS.get(t.name, lambda x: x)
+
+    if t.name == "self_audit":
+        base_code = _best_code_snapshot()
+        base_features = _code_features(base_code)
+
+        def synth_features(k: int, jitter: float) -> List[List[float]]:
+            samples = []
+            for _ in range(k):
+                sample = [max(0.0, f + rng.gauss(0, jitter)) for f in base_features]
+                samples.append(sample)
+            return samples
+
+        def target_score(vec: List[float]) -> float:
+            length, nodes, ifs, whiles, returns = vec
+            raw = 0.004 * length + 0.02 * nodes + 0.1 * ifs + 0.15 * whiles + 0.02 * returns
+            return math.tanh(raw / 10.0)
+
+        x_tr = synth_features(t.n_train, 3.0)
+        x_ho = synth_features(t.n_hold, 4.0)
+        x_st = synth_features(t.n_hold, 6.0)
+        x_te = synth_features(t.n_test, 4.0)
+        y_tr = [target_score(x) for x in x_tr]
+        y_ho = [target_score(x) for x in x_ho]
+        y_st = [target_score(x) for x in x_st]
+        y_te = [target_score(x) for x in x_te]
+        return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st, x_te, y_te)
 
     # ARC tasks from local json
     json_data = load_arc_task(t.name.replace("arc_", ""))
@@ -2324,6 +2382,7 @@ def task_suite(seed: int) -> List[TaskSpec]:
         TaskSpec(name="classification", x_min=-4.0, x_max=4.0, n_train=96, n_hold=64, n_test=64, noise=0.0),
         TaskSpec(name="sinmix", x_min=-6.0, x_max=6.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
         TaskSpec(name="absline", x_min=-6.0, x_max=6.0, n_train=96, n_hold=64, n_test=64, noise=0.01),
+        TaskSpec(name="self_audit", x_min=0.0, x_max=1.0, n_train=64, n_hold=48, n_test=48, noise=0.0),
     ]
     rng = random.Random(seed)
     rng.shuffle(base)
@@ -3418,15 +3477,61 @@ OP_WEIGHT_INIT: Dict[str, float] = {
     for k in OPERATORS
 }
 
+
+@dataclass
+class UpdateRuleGenome:
+    """Representation for update rule parameters (meta-level learning algorithm)."""
+
+    learning_rate: float
+    momentum: float
+    rejection_penalty: float
+    reward_scale: float
+    uid: str = ""
+
+    def __post_init__(self):
+        if not self.uid:
+            self.uid = sha256(f"{self.learning_rate}:{self.momentum}:{self.rejection_penalty}:{self.reward_scale}")[:10]
+
+    def apply(self, meta: "MetaState", op: str, delta: float, accepted: bool) -> None:
+        reward = (max(0.0, -delta) * self.reward_scale) if accepted else -self.rejection_penalty
+        velocity = meta.op_velocity.get(op, 0.0)
+        velocity = self.momentum * velocity + reward
+        meta.op_velocity[op] = velocity
+        meta.op_weights[op] = clamp(meta.op_weights.get(op, 1.0) + self.learning_rate * velocity, 0.1, 8.0)
+
+    def mutate(self, rng: random.Random) -> "UpdateRuleGenome":
+        return UpdateRuleGenome(
+            learning_rate=clamp(self.learning_rate + rng.uniform(-0.05, 0.05), 0.01, 0.5),
+            momentum=clamp(self.momentum + rng.uniform(-0.1, 0.1), 0.0, 0.95),
+            rejection_penalty=clamp(self.rejection_penalty + rng.uniform(-0.05, 0.05), 0.01, 0.5),
+            reward_scale=clamp(self.reward_scale + rng.uniform(-0.1, 0.1), 0.2, 2.0),
+        )
+
+    @staticmethod
+    def default() -> "UpdateRuleGenome":
+        return UpdateRuleGenome(learning_rate=0.12, momentum=0.3, rejection_penalty=0.12, reward_scale=1.0)
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "UpdateRuleGenome":
+        return UpdateRuleGenome(
+            learning_rate=float(data.get("learning_rate", 0.12)),
+            momentum=float(data.get("momentum", 0.3)),
+            rejection_penalty=float(data.get("rejection_penalty", 0.12)),
+            reward_scale=float(data.get("reward_scale", 1.0)),
+            uid=data.get("uid", ""),
+        )
+
 @dataclass
 class MetaState:
     op_weights: Dict[str, float] = field(default_factory=lambda: dict(OP_WEIGHT_INIT))
+    op_velocity: Dict[str, float] = field(default_factory=dict)
     mutation_rate: float = 0.8863
     crossover_rate: float = 0.1971
     complexity_lambda: float = 0.0001
     epsilon_explore: float = 0.4213
     adapt_steps: int = 8
     stuck_counter: int = 0
+    update_rule: UpdateRuleGenome = field(default_factory=UpdateRuleGenome.default)
     strategy: EngineStrategy = field(default_factory=lambda: EngineStrategy(
         selection_code=DEFAULT_SELECTION_CODE,
         crossover_code=DEFAULT_CROSSOVER_CODE,
@@ -3447,8 +3552,7 @@ class MetaState:
 
     def update(self, op: str, delta: float, accepted: bool):
         if op in self.op_weights:
-            reward = max(0.0, -delta) if accepted else -0.1
-            self.op_weights[op] = clamp(self.op_weights[op] + 0.1 * reward, 0.1, 5.0)
+            self.update_rule.apply(self, op, delta, accepted)
         if not accepted:
             self.stuck_counter += 1
             if self.stuck_counter > 20:
@@ -3815,6 +3919,8 @@ class Universe:
         meta_data = s.get("meta", {})
         if "strategy" in meta_data and isinstance(meta_data["strategy"], dict):
             meta_data["strategy"] = EngineStrategy(**meta_data["strategy"])
+        if "update_rule" in meta_data and isinstance(meta_data["update_rule"], dict):
+            meta_data["update_rule"] = UpdateRuleGenome.from_dict(meta_data["update_rule"])
         meta = MetaState(**{k: v for k, v in meta_data.items() if k != "op_weights"})
         meta.op_weights = meta_data.get("op_weights", dict(OP_WEIGHT_INIT))
         pool = [Genome(**g) for g in s.get("pool", [])]
@@ -3988,6 +4094,8 @@ class UniverseLearner:
         meta_data = s.get("meta", {})
         if "strategy" in meta_data and isinstance(meta_data["strategy"], dict):
             meta_data["strategy"] = EngineStrategy(**meta_data["strategy"])
+        if "update_rule" in meta_data and isinstance(meta_data["update_rule"], dict):
+            meta_data["update_rule"] = UpdateRuleGenome.from_dict(meta_data["update_rule"])
         meta = MetaState(**{k: v for k, v in meta_data.items() if k != "op_weights"})
         meta.op_weights = meta_data.get("op_weights", dict(OP_WEIGHT_INIT))
         pool = [LearnerGenome(**g) for g in s.get("pool", [])]
@@ -4021,6 +4129,18 @@ class GlobalState:
     rule_dsl: Optional[Dict[str, Any]] = None
 
 STATE_DIR = Path(".rsi_state")
+UPDATE_RULE_FILE = STATE_DIR / "update_rule.json"
+
+def save_update_rule(path: Path, rule: UpdateRuleGenome):
+    write_json(path, asdict(rule))
+
+def load_update_rule(path: Path) -> UpdateRuleGenome:
+    if path.exists():
+        try:
+            return UpdateRuleGenome.from_dict(read_json(path))
+        except Exception:
+            return UpdateRuleGenome.default()
+    return UpdateRuleGenome.default()
 
 def save_operators_lib(path: Path):
     path.write_text(json.dumps(OPERATORS_LIB, indent=2), encoding="utf-8")
@@ -4037,6 +4157,13 @@ def save_state(gs: GlobalState):
     gs.updated_ms = now_ms()
     write_json(STATE_DIR / "state.json", asdict(gs))
     save_operators_lib(STATE_DIR / "operators_lib.json")
+    if gs.universes:
+        meta_snapshot = gs.universes[0].get("meta", {})
+        if isinstance(meta_snapshot, dict) and "update_rule" in meta_snapshot:
+            try:
+                save_update_rule(STATE_DIR / "update_rule.json", UpdateRuleGenome.from_dict(meta_snapshot["update_rule"]))
+            except Exception:
+                pass
     if gs.mode == "learner":
         save_map_elites(STATE_DIR / map_elites_filename("learner"), MAP_ELITES_LEARNER)
     else:
@@ -4074,6 +4201,7 @@ def run_multiverse(
     safe_mkdir(STATE_DIR)
     logger = RunLogger(STATE_DIR / "run_log.jsonl", append=resume)
     task.ensure_descriptor()
+    update_rule = load_update_rule(STATE_DIR / "update_rule.json")
 
     if resume and (gs0 := load_state()):
         mode = gs0.mode
@@ -4081,6 +4209,8 @@ def run_multiverse(
             us = [UniverseLearner.from_snapshot(s) for s in gs0.universes]
         else:
             us = [Universe.from_snapshot(s) for s in gs0.universes]
+        for u in us:
+            u.meta.update_rule = update_rule
         start = gs0.generations_done
     else:
         b0 = get_task_batch(task, seed, freeze_eval=freeze_eval)
@@ -4092,7 +4222,7 @@ def run_multiverse(
                 UniverseLearner(
                     uid=i,
                     seed=seed + i * 9973,
-                    meta=MetaState(),
+                    meta=MetaState(update_rule=update_rule),
                     pool=[seed_learner_genome(random.Random(seed + i), hint) for _ in range(pop)],
                     library=FunctionLibrary(),
                 )
@@ -4104,7 +4234,7 @@ def run_multiverse(
                 Universe(
                     uid=i,
                     seed=seed + i * 9973,
-                    meta=MetaState(),
+                    meta=MetaState(update_rule=update_rule),
                     pool=[seed_genome(random.Random(seed + i), hint) for _ in range(pop)],
                     library=FunctionLibrary(),
                     eval_mode=eval_mode,
@@ -4237,11 +4367,12 @@ def run_policy_episode(
     base_lib = FunctionLibrary()
     for lib in library_archive.select(descriptor):
         base_lib.merge(lib)
+    update_rule = load_update_rule(STATE_DIR / "update_rule.json")
     universes = [
         Universe(
             uid=i,
             seed=seed + i * 9973,
-            meta=MetaState(),
+            meta=MetaState(update_rule=update_rule),
             pool=[seed_genome(random.Random(seed + i), hint) for _ in range(pop)],
             library=FunctionLibrary.from_snapshot(base_lib.snapshot()),
         )
@@ -4377,6 +4508,62 @@ def run_meta_meta(
             policies.sort(key=lambda p: policy_scores.get(p.pid, float("inf")))
             best_policy = policies[0]
             policies = [best_policy] + [best_policy.mutate(rng, scale=0.05) for _ in range(policy_pop - 1)]
+
+
+def evaluate_update_rule(
+    seed: int,
+    task: TaskSpec,
+    rule: UpdateRuleGenome,
+    gens: int,
+    pop: int,
+    freeze_eval: bool,
+) -> Tuple[float, List[Dict[str, Any]]]:
+    rng = random.Random(seed)
+    batch = get_task_batch(task, seed, freeze_eval=freeze_eval)
+    hint = TaskDetective.detect_pattern(batch)
+    universe = Universe(
+        uid=0,
+        seed=seed,
+        meta=MetaState(update_rule=rule),
+        pool=[seed_genome(rng, hint) for _ in range(pop)],
+        library=FunctionLibrary(),
+    )
+    for gen in range(gens):
+        universe.step(gen, task, pop, batch)
+    return universe.best_score, universe.history
+
+
+def run_update_rule_search(
+    seed: int,
+    rounds: int,
+    gens_per_round: int,
+    pop: int,
+    freeze_eval: bool,
+    state_dir: Path,
+) -> UpdateRuleGenome:
+    rng = random.Random(seed)
+    task = TaskSpec(name="self_audit", n_train=64, n_hold=48, n_test=48, noise=0.0)
+    current = load_update_rule(state_dir / "update_rule.json")
+    rules = [current] + [current.mutate(rng) for _ in range(3)]
+    best_rule = current
+    best_score = float("inf")
+    for r in range(rounds):
+        scored: List[Tuple[float, UpdateRuleGenome]] = []
+        for idx, rule in enumerate(rules):
+            score, history = evaluate_update_rule(seed + r * 101 + idx, task, rule, gens_per_round, pop, freeze_eval)
+            scored.append((score, rule))
+            if history:
+                last = history[-1]
+                if last.get("code"):
+                    SURROGATE.train(history)
+        scored.sort(key=lambda item: item[0])
+        score, best = scored[0]
+        if score < best_score:
+            best_score = score
+            best_rule = best
+            save_update_rule(state_dir / "update_rule.json", best_rule)
+        rules = [best] + [best.mutate(rng) for _ in range(max(1, len(rules) - 1))]
+    return best_rule
 
 
 def run_task_switch(
@@ -5693,6 +5880,7 @@ def run_rsi_loop(
     mode: str,
     freeze_eval: bool = True,
     meta_meta: bool = False,
+    update_rule_rounds: int = 0,
 ):
     task = TaskSpec()
     seed = int(time.time()) % 100000
@@ -5768,6 +5956,16 @@ def run_rsi_loop(
             result = run_deep_autopatch(levels, candidates=4, apply=True, mode=mode)
             if result.get("applied"):
                 print("[RSI] Self-modified! Reloading...")
+        if update_rule_rounds > 0:
+            print(f"[META] Running update-rule search for {update_rule_rounds} rounds...")
+            run_update_rule_search(
+                seed=seed + r * 127,
+                rounds=update_rule_rounds,
+                gens_per_round=max(3, gens_per_round // 2),
+                pop=max(16, pop // 2),
+                freeze_eval=freeze_eval,
+                state_dir=STATE_DIR,
+            )
 
     print(f"\n[RSI LOOP COMPLETE] {rounds} rounds finished")
 
@@ -5883,6 +6081,21 @@ def cmd_rsi_loop(args):
         mode=args.mode,
         freeze_eval=args.freeze_eval,
         meta_meta=args.meta_meta,
+        update_rule_rounds=args.update_rule_rounds,
+    )
+    return 0
+
+
+def cmd_update_rule_search(args):
+    global STATE_DIR
+    STATE_DIR = Path(args.state_dir)
+    run_update_rule_search(
+        seed=args.seed,
+        rounds=args.rounds,
+        gens_per_round=args.generations,
+        pop=args.population,
+        freeze_eval=args.freeze_eval,
+        state_dir=STATE_DIR,
     )
     return 0
 
@@ -5999,6 +6212,7 @@ def build_parser():
     r.add_argument("--levels", default="1,2,3", help="Comma-separated autopatch levels (e.g., 1,3)")
     r.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
     r.add_argument("--meta-meta", action="store_true", help="Run meta-meta loop instead of standard RSI rounds")
+    r.add_argument("--update-rule-rounds", type=int, default=0, help="Rounds of update-rule search per RSI round")
     r.set_defaults(fn=cmd_rsi_loop)
 
     dl = sub.add_parser("duo-loop")
@@ -6068,6 +6282,15 @@ def build_parser():
     inv.add_argument("--seed", type=int, default=0)
     inv.add_argument("--iterations", type=int, default=6)
     inv.set_defaults(fn=cmd_invention)
+
+    ur = sub.add_parser("update-rule")
+    ur.add_argument("--seed", type=int, default=1337)
+    ur.add_argument("--rounds", type=int, default=4)
+    ur.add_argument("--generations", type=int, default=6)
+    ur.add_argument("--population", type=int, default=32)
+    ur.add_argument("--state-dir", default=".rsi_state")
+    ur.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
+    ur.set_defaults(fn=cmd_update_rule_search)
 
     return p
 
