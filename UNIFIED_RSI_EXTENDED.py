@@ -4963,6 +4963,7 @@ def build_parser():
     r.add_argument("--universes", type=int, default=2)
     r.add_argument("--state-dir", default=".rsi_state")
     r.add_argument("--mode", default="solver", choices=["solver", "learner", "algo"])
+    r.add_argument("--levels", default="1,2,3", help="Comma-separated autopatch levels (e.g., 1,3)")
     r.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
     r.add_argument("--meta-meta", action="store_true", help="Run meta-meta loop instead of standard RSI rounds")
     r.set_defaults(fn=cmd_rsi_loop)
