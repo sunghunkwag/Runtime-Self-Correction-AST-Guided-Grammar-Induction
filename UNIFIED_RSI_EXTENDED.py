@@ -16,6 +16,16 @@ CLI:
   python UNIFIED_RSI_EXTENDED.py transfer-bench --from poly2 --to piecewise --budget 10
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 50 --rounds 10
   python UNIFIED_RSI_EXTENDED.py rsi-loop --generations 20 --rounds 5 --mode learner
+  python UNIFIED_RSI_EXTENDED.py duo-loop --rounds 5 --slice-seconds 8 --blackboard .rsi_blackboard.jsonl --k-full 6
+
+DUO-LOOP OVERVIEW
+-----------------
+The duo-loop command adds a sequential, low-spec cooperative loop with two virtual agents:
+- Creator: proposes diverse candidate programs (novelty-biased generation).
+- Critic: prefilters, refines, stress-checks, and adopts candidates (robustness/generalization-biased).
+
+Unlike evolve/rsi-loop, duo-loop never adopts directly from Creator; adoption is Critic-only.
+It keeps state in the existing state directory and logs to an append-only blackboard JSONL file.
 
 CHANGELOG
 ---------
@@ -169,6 +179,33 @@ class RunLogger:
             f.write(json.dumps(record) + "\n")
         self.records.append(record)
         return record
+
+
+# ---------------------------
+# Blackboard utilities
+# ---------------------------
+
+def append_blackboard(path: Path, record: Dict[str, Any]) -> None:
+    safe_mkdir(path.parent)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def tail_blackboard(path: Path, k: int) -> List[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    lines: collections.deque[str] = collections.deque(maxlen=k)
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                lines.append(line)
+    records = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except Exception:
+            continue
+    return records
 
 
 # ---------------------------
@@ -3503,6 +3540,44 @@ class MetaPolicy:
 
 
 # ---------------------------
+# Duo-loop (Creator/Critic)
+# ---------------------------
+
+@dataclass
+class AgentPolicy:
+    generator_mode: str
+    search_bias: Dict[str, float]
+    gate_target: float
+    slice_seconds: float
+
+
+CREATOR_POLICY = AgentPolicy(
+    generator_mode="synthesize",
+    search_bias={
+        "novelty": 1.2,
+        "simplicity": 0.4,
+        "robustness": 0.3,
+        "generalization": 0.2,
+        "perf": 0.2,
+    },
+    gate_target=0.35,
+    slice_seconds=6.0,
+)
+
+CRITIC_POLICY = AgentPolicy(
+    generator_mode="mutate",
+    search_bias={
+        "novelty": 0.2,
+        "simplicity": 0.9,
+        "robustness": 1.1,
+        "generalization": 1.0,
+        "perf": 0.6,
+    },
+    gate_target=0.7,
+    slice_seconds=6.0,
+)
+
+# ---------------------------
 # Universe / Multiverse
 # ---------------------------
 
@@ -5088,6 +5163,527 @@ def is_300s_stagnation(scores: List[float]) -> bool:
     return all(s > 300.0 for s in scores)
 
 
+def _candidate_hash(code: str) -> str:
+    return sha256(code)
+
+
+def _slice_pair(xs: List[Any], ys: List[Any], n: int) -> Tuple[List[Any], List[Any]]:
+    if not xs or not ys:
+        return [], []
+    k = min(n, len(xs), len(ys))
+    return xs[:k], ys[:k]
+
+
+def _prefilter_batch(batch: Batch, max_samples: int = 3) -> Batch:
+    x_tr, y_tr = _slice_pair(batch.x_tr, batch.y_tr, max_samples)
+    x_ho, y_ho = _slice_pair(batch.x_ho, batch.y_ho, max_samples)
+    x_st, y_st = _slice_pair(batch.x_st, batch.y_st, max_samples)
+    x_te, y_te = _slice_pair(batch.x_te, batch.y_te, max_samples)
+    if not x_tr and x_ho:
+        x_tr, y_tr = x_ho, y_ho
+    if not x_ho and x_tr:
+        x_ho, y_ho = x_tr, y_tr
+    if not x_st and x_tr:
+        x_st, y_st = x_tr, y_tr
+    if not x_te and x_tr:
+        x_te, y_te = x_tr, y_tr
+    return Batch(x_tr, y_tr, x_ho, y_ho, x_st, y_st, x_te, y_te)
+
+
+def _prefilter_eval(
+    g: Genome,
+    batch: Batch,
+    mode: str,
+    task_name: str,
+    extra_env: Optional[Dict[str, Any]] = None,
+    validator: Callable[[str], Tuple[bool, str]] = validate_code,
+) -> Tuple[bool, str, Optional[EvalResult]]:
+    gate_ok, gate_reason = _hard_gate_ok(g.code, batch, mode, task_name, extra_env=extra_env)
+    if not gate_ok:
+        return False, f"hard_gate:{gate_reason}", None
+    if mode in ("solver", "program"):
+        ok, err = validator(g.code)
+        if not ok:
+            return False, f"validator:{err}", None
+    mini_batch = _prefilter_batch(batch, max_samples=4)
+    if mode == "learner":
+        res = evaluate_learner(g, mini_batch, task_name)
+    elif mode == "algo":
+        res = evaluate_algo(g, mini_batch, task_name)
+    else:
+        res = evaluate(g, mini_batch, task_name, extra_env=extra_env, validator=validator)
+    return res.ok, res.err or "", res
+
+
+def _mutate_genome_with_meta(
+    rng: random.Random,
+    g: Genome,
+    meta: MetaState,
+    library: FunctionLibrary,
+    op_bias: Optional[str] = None,
+) -> Genome:
+    stmts = g.statements[:]
+    op_tag = "mutate"
+    use_synth = rng.random() < 0.3 and bool(OPERATORS_LIB)
+    if use_synth:
+        synth_name = rng.choice(list(OPERATORS_LIB.keys()))
+        steps = OPERATORS_LIB[synth_name].get("steps", [])
+        stmts = apply_synthesized_op(rng, stmts, steps)
+        op_tag = f"synth:{synth_name}"
+    else:
+        op = op_bias or meta.sample_op(rng)
+        if op in OPERATORS:
+            stmts = OPERATORS[op](rng, stmts)
+        op_tag = f"mut:{op}"
+    stmts = inject_helpers_into_statements(rng, list(stmts), library)
+    return Genome(statements=stmts, parents=[g.gid], op_tag=op_tag)
+
+
+def _synthesize_genome(
+    rng: random.Random,
+    pool: List[Genome],
+    hint: Optional[str],
+    library: FunctionLibrary,
+) -> Genome:
+    if not pool:
+        return seed_genome(rng, hint)
+    p1 = rng.choice(pool)
+    p2 = rng.choice(pool)
+    if len(p1.statements) <= 1 or len(p2.statements) <= 1:
+        stmts = (p1.statements or []) + (p2.statements or [])
+    else:
+        cut1 = max(1, len(p1.statements) // 2)
+        cut2 = max(1, len(p2.statements) // 2)
+        stmts = p1.statements[:cut1] + p2.statements[-cut2:]
+    if not stmts:
+        stmts = ["return x"]
+    stmts = inject_helpers_into_statements(rng, list(stmts), library)
+    return Genome(statements=stmts, parents=[p1.gid, p2.gid], op_tag="synthesize")
+
+
+def _fallback_template_genome(rng: random.Random, hint: Optional[str]) -> Genome:
+    if hint:
+        return seed_genome(rng, hint)
+    return Genome(statements=["v0 = x", "return v0"], op_tag="fallback")
+
+
+def _simplify_genome(rng: random.Random, g: Genome) -> Optional[Genome]:
+    if len(g.statements) <= 1:
+        return None
+    stmts = g.statements[:]
+    removable = [i for i, s in enumerate(stmts) if not s.strip().startswith("return ")]
+    if not removable:
+        return None
+    idx = rng.choice(removable)
+    del stmts[idx]
+    return Genome(statements=stmts, parents=[g.gid], op_tag="simplify")
+
+
+def _repair_genome(g: Genome) -> Genome:
+    stmts = g.statements[:]
+    has_return = any(s.strip().startswith("return ") for s in stmts)
+    if not has_return:
+        stmts.append("return x")
+    else:
+        if not any("x" in s for s in stmts if s.strip().startswith("return ")):
+            stmts.append("return x")
+    return Genome(statements=stmts, parents=[g.gid], op_tag="repair")
+
+
+def _critic_refine(
+    rng: random.Random,
+    g: Genome,
+    meta: MetaState,
+    library: FunctionLibrary,
+) -> List[Genome]:
+    refined: List[Genome] = []
+    simplified = _simplify_genome(rng, g)
+    if simplified:
+        refined.append(simplified)
+    refined.append(_repair_genome(g))
+    refined.append(_mutate_genome_with_meta(rng, g, meta, library, op_bias="modify_return"))
+    return refined
+
+
+def _adjust_creator_policy(
+    policy: AgentPolicy,
+    gate_pass_rate: float,
+    gate_fail_reasons: collections.Counter,
+) -> AgentPolicy:
+    new_search = dict(policy.search_bias)
+    generator_mode = policy.generator_mode
+    if gate_pass_rate < policy.gate_target:
+        generator_mode = "template"
+        new_search["simplicity"] = clamp(new_search.get("simplicity", 0.5) + 0.3, 0.1, 2.0)
+    if gate_fail_reasons.get("constant_output", 0) > 0:
+        new_search["robustness"] = clamp(new_search.get("robustness", 0.5) + 0.2, 0.1, 2.0)
+    return AgentPolicy(
+        generator_mode=generator_mode,
+        search_bias=new_search,
+        gate_target=policy.gate_target,
+        slice_seconds=policy.slice_seconds,
+    )
+
+
+def _critic_rank_score(res: EvalResult, policy: AgentPolicy) -> float:
+    simplicity = policy.search_bias.get("simplicity", 0.0)
+    robustness = policy.search_bias.get("robustness", 0.0)
+    generalization = policy.search_bias.get("generalization", 0.0)
+    perf = policy.search_bias.get("perf", 0.0)
+    return (
+        res.score
+        + simplicity * 0.0005 * res.nodes
+        + robustness * res.stress
+        + generalization * res.hold
+        + perf * res.train
+    )
+
+
+def _print_critic_summary(
+    gate_pass: int,
+    total_checked: int,
+    adopted: bool,
+    full_results_count: int,
+    duplicate_count: int,
+    scored_empty_count: int,
+    gate_fail_reasons: collections.Counter,
+    validator_fail_reasons: collections.Counter,
+) -> None:
+    gate_pass_rate = gate_pass / max(1, total_checked)
+    adoption_rate = (1.0 if adopted else 0.0) / max(1, full_results_count)
+    duplicate_ratio = duplicate_count / max(1, total_checked)
+    top_gate = gate_fail_reasons.most_common(5)
+    print(
+        f"[Critic] gate_pass_rate={gate_pass_rate:.2f} adoption_rate={adoption_rate:.2f} "
+        f"duplicate_ratio={duplicate_ratio:.2f} scored_empty={scored_empty_count}"
+    )
+    if top_gate:
+        print("[Critic] top gate failures:", ", ".join(f"{k}:{v}" for k, v in top_gate))
+    else:
+        print("[Critic] top gate failures: none")
+    if validator_fail_reasons:
+        top_validator = validator_fail_reasons.most_common(3)
+        print("[Critic] top validator failures:", ", ".join(f"{k}:{v}" for k, v in top_validator))
+
+
+def run_duo_loop(
+    rounds: int,
+    slice_seconds: float,
+    blackboard_path: Path,
+    k_full: int,
+    seed: int,
+    mode: str = "solver",
+    freeze_eval: bool = True,
+    population: int = 64,
+    max_candidates: int = 512,
+) -> None:
+    task = TaskSpec()
+    task.ensure_descriptor()
+    rng = random.Random(seed)
+    gs = load_state()
+    if gs and gs.mode == mode and gs.universes:
+        selected = next((u for u in gs.universes if u.get("uid") == gs.selected_uid), gs.universes[0])
+        universe = Universe.from_snapshot(selected)
+    else:
+        batch0 = get_task_batch(task, seed, freeze_eval=freeze_eval)
+        hint = TaskDetective.detect_pattern(batch0)
+        universe = Universe(
+            uid=0,
+            seed=seed,
+            meta=MetaState(),
+            pool=[seed_genome(random.Random(seed + i), hint) for i in range(population)],
+            library=FunctionLibrary(),
+            eval_mode="program" if mode == "program" else ("algo" if mode == "algo" else "solver"),
+        )
+
+    creator_policy = CREATOR_POLICY
+    critic_policy = CRITIC_POLICY
+    reseed_templates: List[List[str]] = []
+    fixed_batch = get_task_batch(task, seed, freeze_eval=freeze_eval, gen=0)
+    if fixed_batch is None:
+        print("[DUO] No batch available; aborting.")
+        return
+
+    for r in range(rounds):
+        round_seed = seed + r * 9973
+        round_rng = random.Random(round_seed)
+        batch = get_task_batch(task, seed, freeze_eval=freeze_eval, gen=r)
+        if batch is None:
+            print("[DUO] No batch available; aborting.")
+            break
+        helper_env = universe.library.get_helpers()
+        hint = TaskDetective.detect_pattern(batch)
+        if hint:
+            print(f"[DUO] Detected pattern: {hint}")
+
+        creator_slice = slice_seconds if slice_seconds > 0 else creator_policy.slice_seconds
+        critic_slice = slice_seconds if slice_seconds > 0 else critic_policy.slice_seconds
+
+        print(f"\n{'='*60}\n[DUO ROUND {r+1}/{rounds}] Creator\n{'='*60}")
+        creator_candidates: List[Genome] = [
+            seed_genome(round_rng, hint),
+            _fallback_template_genome(round_rng, hint),
+        ]
+        if universe.best:
+            creator_candidates.append(_repair_genome(universe.best))
+        creator_start = time.time()
+        while time.time() - creator_start < creator_slice:
+            if len(creator_candidates) >= max_candidates:
+                break
+            mode_choice = creator_policy.generator_mode
+            if mode_choice == "template":
+                if reseed_templates:
+                    stmts = round_rng.choice(reseed_templates)
+                    g = Genome(statements=list(stmts), op_tag="reseed")
+                else:
+                    g = seed_genome(round_rng, hint)
+            elif mode_choice == "mutate":
+                parent = round_rng.choice(universe.pool) if universe.pool else seed_genome(round_rng, hint)
+                g = _mutate_genome_with_meta(round_rng, parent, universe.meta, universe.library)
+            else:
+                g = _synthesize_genome(round_rng, universe.pool, hint, universe.library)
+            creator_candidates.append(g)
+
+        print(f"[DUO] Creator proposed {len(creator_candidates)} candidates")
+
+        print(f"\n{'='*60}\n[DUO ROUND {r+1}/{rounds}] Critic\n{'='*60}")
+        critic_start = time.time()
+        gate_fail_reasons: collections.Counter = collections.Counter()
+        validator_fail_reasons: collections.Counter = collections.Counter()
+        scored_empty_count = 0
+        prefiltered: List[Tuple[Genome, EvalResult]] = []
+        seen_hashes: Set[str] = set()
+        duplicate_count = 0
+        total_checked = 0
+        gate_pass = 0
+
+        for g in creator_candidates:
+            if time.time() - critic_start > critic_slice:
+                break
+            total_checked += 1
+            code_hash = _candidate_hash(g.code)
+            if code_hash in seen_hashes:
+                duplicate_count += 1
+            seen_hashes.add(code_hash)
+
+            ok, reason, pre_res = _prefilter_eval(
+                g,
+                batch,
+                universe.eval_mode,
+                task.name,
+                extra_env=helper_env,
+                validator=validate_program if universe.eval_mode == "program" else validate_code,
+            )
+            record = {
+                "timestamp": now_ms(),
+                "agent_id": "critic",
+                "generation": r,
+                "candidate_hash": code_hash,
+                "gate_ok": ok,
+                "gate_reason": "" if ok else reason,
+                "score_train": pre_res.train if pre_res else None,
+                "score_holdout": pre_res.hold if pre_res else None,
+                "score_stress": pre_res.stress if pre_res else None,
+                "selected": False,
+                "note": "prefilter",
+            }
+            append_blackboard(blackboard_path, record)
+
+            if not ok:
+                if reason.startswith("hard_gate:"):
+                    gate_fail_reasons[reason.split("hard_gate:", 1)[1]] += 1
+                elif reason.startswith("validator:"):
+                    validator_fail_reasons[reason.split("validator:", 1)[1]] += 1
+                continue
+            gate_pass += 1
+            if pre_res:
+                prefiltered.append((g, pre_res))
+
+        if not prefiltered:
+            scored_empty_count += 1
+            reseed_templates = [_fallback_template_genome(round_rng, hint).statements]
+            append_blackboard(
+                blackboard_path,
+                {
+                    "timestamp": now_ms(),
+                    "agent_id": "critic",
+                    "generation": r,
+                    "candidate_hash": "none",
+                    "gate_ok": False,
+                    "gate_reason": "scored_empty",
+                    "score_train": None,
+                    "score_holdout": None,
+                    "score_stress": None,
+                    "selected": False,
+                    "note": "reseed",
+                },
+            )
+            gate_pass_rate = gate_pass / max(1, total_checked)
+            creator_policy = _adjust_creator_policy(creator_policy, gate_pass_rate, gate_fail_reasons)
+            print("[DUO] No candidates passed prefilter; reseeding templates.")
+            _print_critic_summary(
+                gate_pass=gate_pass,
+                total_checked=total_checked,
+                adopted=False,
+                full_results_count=0,
+                duplicate_count=duplicate_count,
+                scored_empty_count=scored_empty_count,
+                gate_fail_reasons=gate_fail_reasons,
+                validator_fail_reasons=validator_fail_reasons,
+            )
+            continue
+
+        prefiltered.sort(key=lambda t: _critic_rank_score(t[1], critic_policy))
+        selected = prefiltered[: max(1, k_full)]
+        prefilter_map = {_candidate_hash(g.code): res for g, res in prefiltered}
+        baseline_candidates = creator_candidates[:2]
+        baseline_hashes = {_candidate_hash(c.code) for c in baseline_candidates}
+        selected_hashes = {_candidate_hash(g.code) for g, _ in selected}
+        for base in baseline_candidates:
+            base_hash = _candidate_hash(base.code)
+            if base_hash not in selected_hashes:
+                base_res = prefilter_map.get(base_hash)
+                if base_res:
+                    selected.append((base, base_res))
+        for g, pre_res in selected:
+            append_blackboard(
+                blackboard_path,
+                {
+                    "timestamp": now_ms(),
+                    "agent_id": "critic",
+                    "generation": r,
+                    "candidate_hash": _candidate_hash(g.code),
+                    "gate_ok": True,
+                    "gate_reason": "",
+                    "score_train": pre_res.train,
+                    "score_holdout": pre_res.hold,
+                    "score_stress": pre_res.stress,
+                    "selected": True,
+                    "note": "prefilter_selected",
+                },
+            )
+
+        full_results: List[Tuple[Genome, EvalResult]] = []
+        forced_eval = set(baseline_hashes)
+        for g, _ in selected:
+            if time.time() - critic_start > critic_slice and _candidate_hash(g.code) not in forced_eval:
+                break
+            refined = _critic_refine(round_rng, g, universe.meta, universe.library)
+            for candidate in [g] + refined:
+                if time.time() - critic_start > critic_slice and _candidate_hash(candidate.code) not in forced_eval:
+                    break
+                res = _evaluate_candidate(
+                    candidate,
+                    _merge_stress(fixed_batch, batch),
+                    universe.eval_mode,
+                    task.name,
+                    extra_env=helper_env,
+                    validator=validate_program if universe.eval_mode == "program" else validate_code,
+                )
+                if res.ok:
+                    full_results.append((candidate, res))
+                else:
+                    if res.err:
+                        if res.err.startswith("hard_gate:"):
+                            gate_fail_reasons[res.err.split("hard_gate:", 1)[1]] += 1
+                        else:
+                            validator_fail_reasons[res.err] += 1
+                append_blackboard(
+                    blackboard_path,
+                    {
+                        "timestamp": now_ms(),
+                        "agent_id": "critic",
+                        "generation": r,
+                        "candidate_hash": _candidate_hash(candidate.code),
+                        "gate_ok": res.ok,
+                        "gate_reason": "" if res.ok else (res.err or ""),
+                        "score_train": res.train if res.ok else None,
+                        "score_holdout": res.hold if res.ok else None,
+                        "score_stress": res.stress if res.ok else None,
+                        "selected": False,
+                        "note": candidate.op_tag,
+                    },
+                )
+
+        adopted = False
+        full_results_count = len(full_results)
+        if not full_results:
+            scored_empty_count += 1
+            reseed_templates = [_fallback_template_genome(round_rng, hint).statements]
+            append_blackboard(
+                blackboard_path,
+                {
+                    "timestamp": now_ms(),
+                    "agent_id": "critic",
+                    "generation": r,
+                    "candidate_hash": "none",
+                    "gate_ok": False,
+                    "gate_reason": "scored_empty",
+                    "score_train": None,
+                    "score_holdout": None,
+                    "score_stress": None,
+                    "selected": False,
+                    "note": "reseed",
+                },
+            )
+            print("[DUO] No candidates survived full evaluation; reseeding templates.")
+        else:
+            full_results.sort(key=lambda t: t[1].score)
+            best_g, best_res = full_results[0]
+            if best_res.score < universe.best_score:
+                adopted = True
+                universe.best = best_g
+                universe.best_score = best_res.score
+                universe.best_train = best_res.train
+                universe.best_hold = best_res.hold
+                universe.best_stress = best_res.stress
+                universe.best_test = best_res.test
+                append_blackboard(
+                    blackboard_path,
+                    {
+                        "timestamp": now_ms(),
+                        "agent_id": "critic",
+                        "generation": r,
+                        "candidate_hash": _candidate_hash(best_g.code),
+                        "gate_ok": True,
+                        "gate_reason": "",
+                        "score_train": best_res.train,
+                        "score_holdout": best_res.hold,
+                        "score_stress": best_res.stress,
+                        "selected": True,
+                        "note": "adopted",
+                    },
+                )
+            universe.pool = [g for g, _ in full_results[: max(8, population // 4)]]
+            if len(universe.pool) < population:
+                universe.pool.extend([seed_genome(round_rng, hint) for _ in range(population - len(universe.pool))])
+
+        gate_pass_rate = gate_pass / max(1, total_checked)
+        creator_policy = _adjust_creator_policy(creator_policy, gate_pass_rate, gate_fail_reasons)
+        _print_critic_summary(
+            gate_pass=gate_pass,
+            total_checked=total_checked,
+            adopted=adopted,
+            full_results_count=full_results_count,
+            duplicate_count=duplicate_count,
+            scored_empty_count=scored_empty_count,
+            gate_fail_reasons=gate_fail_reasons,
+            validator_fail_reasons=validator_fail_reasons,
+        )
+
+        gs = GlobalState(
+            "RSI_EXTENDED_v2",
+            now_ms(),
+            now_ms(),
+            seed,
+            asdict(task),
+            [universe.snapshot()],
+            universe.uid,
+            r + 1,
+            mode=mode,
+        )
+        save_state(gs)
+
 def run_rsi_loop(
     gens_per_round: int,
     rounds: int,
@@ -5290,6 +5886,22 @@ def cmd_rsi_loop(args):
     )
     return 0
 
+def cmd_duo_loop(args):
+    global STATE_DIR
+    STATE_DIR = Path(args.state_dir)
+    run_duo_loop(
+        rounds=args.rounds,
+        slice_seconds=args.slice_seconds,
+        blackboard_path=Path(args.blackboard),
+        k_full=args.k_full,
+        seed=args.seed,
+        mode=args.mode,
+        freeze_eval=args.freeze_eval,
+        population=args.population,
+        max_candidates=args.max_candidates,
+    )
+    return 0
+
 def cmd_meta_meta(args):
     global STATE_DIR
     STATE_DIR = Path(args.state_dir)
@@ -5388,6 +6000,19 @@ def build_parser():
     r.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
     r.add_argument("--meta-meta", action="store_true", help="Run meta-meta loop instead of standard RSI rounds")
     r.set_defaults(fn=cmd_rsi_loop)
+
+    dl = sub.add_parser("duo-loop")
+    dl.add_argument("--rounds", type=int, default=5)
+    dl.add_argument("--slice-seconds", type=float, default=0.0)
+    dl.add_argument("--blackboard", default=".rsi_blackboard.jsonl")
+    dl.add_argument("--k-full", type=int, default=6)
+    dl.add_argument("--seed", type=int, default=1337)
+    dl.add_argument("--mode", default="solver", choices=["solver", "algo", "program"])
+    dl.add_argument("--population", type=int, default=64)
+    dl.add_argument("--max-candidates", type=int, default=512)
+    dl.add_argument("--state-dir", default=".rsi_state")
+    dl.add_argument("--freeze-eval", action=argparse.BooleanOptionalAction, default=True)
+    dl.set_defaults(fn=cmd_duo_loop)
 
     ap = sub.add_parser("autopatch-probe")
     ap.add_argument("--mode", default="solver", choices=["solver", "learner", "algo"])
