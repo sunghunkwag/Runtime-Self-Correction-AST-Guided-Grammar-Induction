@@ -61,6 +61,26 @@ def run_evolution():
         if ret.returncode != 0:
             print(f"Iteration {i} failed!", flush=True)
 
+        # [Real RSI - Self-Modification Step]
+        # Force the agent to attempt "Autopatch" (rewriting its own source code).
+        # We enable levels 1, 2, and 3 to allow modification of Hyperparams, Operators, and Eval Logic.
+        print(f"\n--- Iteration {i} [Real RSI - Codebase Self-Modification] ---", flush=True)
+        cmd_rsi = [
+            sys.executable, "UNIFIED_RSI_EXTENDED.py", "rsi-loop",
+            "--generations", "10",       # Short burst for validation
+            "--rounds", "1",             # Single round of self-surgery
+            "--levels", "1,2,3",         # Enable ALL modification levels
+            "--population", "32",
+            "--universes", "1",
+            "--update-rule-rounds", "2"  # Evolve the update rule itself
+        ]
+
+        ret_rsi = subprocess.run(cmd_rsi)
+        if ret_rsi.returncode != 0:
+            print(f"RSI Autopatch failed at iteration {i} (Soft fail - continuing)...", flush=True)
+        else:
+            print(f"RSI Autopatch executed at iteration {i}. Checking for file changes...", flush=True)
+
     print("\nEvolution Loop Complete.", flush=True)
 
 if __name__ == "__main__":
