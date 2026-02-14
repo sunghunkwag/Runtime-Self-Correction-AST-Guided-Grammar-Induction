@@ -7,6 +7,9 @@ Tests: EDA, ARC Loading, Algorithmic Tasks
 import sys
 import random
 import time
+import os
+import importlib.util
+import subprocess
 from UNIFIED_RSI_EXTENDED import (
     TaskSpec, Universe, MetaState, FunctionLibrary,
     GRAMMAR_PROBS, load_arc_task, get_arc_tasks, sample_batch
@@ -126,6 +129,65 @@ def test_arc_json_loading():
         print(f"❌ FAIL: Could not load task '{tid}'")
         return False
 
+def test_omega_point_integration():
+    """Test 4: omega_point.py integration smoke test"""
+    print("\n" + "="*60)
+    print("TEST 4: Omega Point Integration")
+    print("="*60)
+
+    required_modules = ["numpy", "scipy", "sentence_transformers", "torch"]
+    missing_modules = [m for m in required_modules if importlib.util.find_spec(m) is None]
+    if missing_modules:
+        print(f"⚠️  WARN: Skipping omega_point.py (missing dependencies: {', '.join(missing_modules)})")
+        return True
+
+    if not os.path.exists("google-10000-english-no-swears.txt"):
+        print("❌ FAIL: Missing word list file google-10000-english-no-swears.txt")
+        return False
+
+    env = os.environ.copy()
+    env.update({
+        "OMEGA_POINT_NUM_CONCEPTS": "64",
+        "OMEGA_POINT_ITERATIONS": "8",
+        "OMEGA_POINT_MAX_ATTEMPTS": "64",
+        "OMEGA_POINT_SEED": "42"
+    })
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "omega_point.py"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("❌ FAIL: omega_point.py timed out")
+        return False
+
+    if result.returncode != 0:
+        stderr_tail = "\n".join(result.stderr.strip().splitlines()[-8:])
+        print("❌ FAIL: omega_point.py exited non-zero")
+        if stderr_tail:
+            print(stderr_tail)
+        return False
+
+    try:
+        import json
+        payload = json.loads(result.stdout)
+    except Exception as e:
+        print(f"❌ FAIL: omega_point.py did not emit valid JSON: {e}")
+        return False
+
+    required_top_keys = {"topology_scan", "void_properties", "c_stage_interpretation"}
+    if not required_top_keys.issubset(payload.keys()):
+        print(f"❌ FAIL: omega_point.py output missing keys: {required_top_keys - set(payload.keys())}")
+        return False
+
+    print("✅ PASS: omega_point.py integration smoke test")
+    return True
+
 def run_all_tests():
     """Run complete verification suite"""
     print("\n" + "█"*60)
@@ -135,7 +197,8 @@ def run_all_tests():
     tests = [
         ("EDA Grammar Learning", test_eda_grammar_learning),
         ("Algorithmic Tasks", test_algorithmic_tasks),
-        ("ARC JSON Loading", test_arc_json_loading)
+        ("ARC JSON Loading", test_arc_json_loading),
+        ("Omega Point Integration", test_omega_point_integration),
     ]
     
     results = []
