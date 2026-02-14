@@ -21,10 +21,17 @@ A single-file recursive self-improvement engine that evolves Python programs thr
 
 ## Verification
 
-Run the integrated test suite coverage (EDA, Algorithmic, ARC, TDR, Autopatch):
+Run the integrated test suite coverage (EDA, Algorithmic, ARC, TDR, Autopatch, omega_point runtime check):
 
 ```bash
 python test_suite.py
+```
+
+
+Quick prerequisite check for omega_point runtime:
+
+```bash
+python omega_point.py --self-check
 ```
 
 For full integration verification, run:

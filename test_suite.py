@@ -7,6 +7,8 @@ Tests: EDA, ARC Loading, Algorithmic Tasks
 import sys
 import random
 import time
+import json
+import subprocess
 from UNIFIED_RSI_EXTENDED import (
     TaskSpec, Universe, MetaState, FunctionLibrary,
     GRAMMAR_PROBS, load_arc_task, get_arc_tasks, sample_batch
@@ -126,6 +128,45 @@ def test_arc_json_loading():
         print(f"❌ FAIL: Could not load task '{tid}'")
         return False
 
+
+def test_omega_point_integration():
+    """Test 4: omega_point.py runtime integration check"""
+    print("\n" + "="*60)
+    print("TEST 4: omega_point.py Integration")
+    print("="*60)
+
+    cmd = [sys.executable, "omega_point.py", "--self-check"]
+    try:
+        proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        print(f"❌ FAIL: self-check execution failed: {exc}")
+        if exc.stdout:
+            print(exc.stdout)
+        if exc.stderr:
+            print(exc.stderr)
+        return False
+
+    try:
+        report = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        print(f"❌ FAIL: self-check output is not valid JSON: {exc}")
+        if proc.stdout:
+            print(proc.stdout)
+        return False
+
+    if report.get("ready"):
+        print("✅ PASS: omega_point.py runtime prerequisites are ready")
+        return True
+
+    print("⚠️  WARN: omega_point.py prerequisites are missing in this environment")
+    for module, status in report.get("modules", {}).items():
+        if status != "ok":
+            print(f"  - {module}: {status}")
+    word_list = report.get("word_list", {})
+    if not word_list.get("exists", False):
+        print(f"  - word list missing: {word_list.get('path')}")
+    return True
+
 def run_all_tests():
     """Run complete verification suite"""
     print("\n" + "█"*60)
@@ -135,7 +176,8 @@ def run_all_tests():
     tests = [
         ("EDA Grammar Learning", test_eda_grammar_learning),
         ("Algorithmic Tasks", test_algorithmic_tasks),
-        ("ARC JSON Loading", test_arc_json_loading)
+        ("ARC JSON Loading", test_arc_json_loading),
+        ("omega_point.py Integration", test_omega_point_integration),
     ]
     
     results = []
