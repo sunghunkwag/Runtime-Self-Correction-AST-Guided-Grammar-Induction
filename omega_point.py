@@ -1,11 +1,9 @@
-import numpy as np
-import scipy.spatial.distance
-from sentence_transformers import SentenceTransformer
-import torch
+import argparse
+import importlib
 import json
 import random
 import sys
-import os
+from pathlib import Path
 
 # Constants
 MODEL_NAME = os.getenv('OMEGA_POINT_MODEL', 'all-MiniLM-L6-v2')
@@ -19,10 +17,46 @@ EPSILON = float(os.getenv('OMEGA_POINT_EPSILON', '0.05'))
 MAX_ATTEMPTS = int(os.getenv('OMEGA_POINT_MAX_ATTEMPTS', '1000'))
 SEED = os.getenv('OMEGA_POINT_SEED')
 
-def main():
-    if SEED is not None:
-        random.seed(int(SEED))
-        np.random.seed(int(SEED))
+
+def runtime_self_check():
+    """Check local runtime prerequisites without loading the embedding model."""
+    required_modules = ["numpy", "scipy", "sentence_transformers", "torch"]
+    modules = {}
+
+    for module_name in required_modules:
+        try:
+            importlib.import_module(module_name)
+            modules[module_name] = "ok"
+        except Exception as exc:
+            modules[module_name] = f"missing: {exc}"
+
+    word_list_exists = Path(WORD_LIST_FILE).is_file()
+    ready = all(status == "ok" for status in modules.values()) and word_list_exists
+
+    return {
+        "ready": ready,
+        "modules": modules,
+        "word_list": {
+            "path": WORD_LIST_FILE,
+            "exists": word_list_exists,
+        },
+    }
+
+
+def load_runtime_dependencies():
+    """Import heavy runtime deps lazily so self-check can run in minimal envs."""
+    np = importlib.import_module("numpy")
+    scipy_distance = importlib.import_module("scipy.spatial.distance")
+    sentence_transformers = importlib.import_module("sentence_transformers")
+    _ = importlib.import_module("torch")  # Imported to preserve existing dependency contract.
+    return np, scipy_distance, sentence_transformers.SentenceTransformer
+
+
+def run_omega_point(num_concepts=NUM_CONCEPTS, iterations=ITERATIONS, seed=None):
+    if seed is not None:
+        random.seed(seed)
+
+    np, scipy_distance, SentenceTransformer = load_runtime_dependencies()
 
     # Phase 1: Manifold Mapping
     print("Phase 1: Manifold Mapping...", file=sys.stderr)
@@ -50,14 +84,14 @@ def main():
     else:
         candidates = words
 
-    selected_indices = random.sample(range(len(candidates)), min(NUM_CONCEPTS, len(candidates)))
+    selected_indices = random.sample(range(len(candidates)), min(num_concepts, len(candidates)))
     concepts = [candidates[i] for i in selected_indices]
 
     embeddings = model.encode(concepts)
 
     # Compute pairwise distances (Cosine distance = 1 - Cosine Similarity)
     # distance_matrix[i][j] is distance between concepts[i] and concepts[j]
-    dist_matrix = scipy.spatial.distance.cdist(embeddings, embeddings, metric='cosine')
+    dist_matrix = scipy_distance.cdist(embeddings, embeddings, metric='cosine')
 
     # Phase 2: The "Hole" Hunter
     print("Phase 2: The Hole Hunter...", file=sys.stderr)
@@ -75,7 +109,7 @@ def main():
         # Let's build it step by step.
 
         chain = []
-        current_idx = random.randint(0, concept_count - 1)
+        current_idx = random.randint(0, len(concepts) - 1)
         chain.append(current_idx)
 
         failed = False
@@ -120,7 +154,7 @@ def main():
             # Check if Centroid is EMPTY
             # Compute distance from centroid to all concepts
             # Reshape centroid for cdist
-            dists_to_centroid = scipy.spatial.distance.cdist([centroid], embeddings, metric='cosine')[0]
+            dists_to_centroid = scipy_distance.cdist([centroid], embeddings, metric='cosine')[0]
             min_dist = np.min(dists_to_centroid)
 
             if min_dist > VOID_DIST_THRESHOLD:
@@ -145,7 +179,7 @@ def main():
              boundary_concepts = [concepts[i] for i in chain]
         else:
              # Just pick 4 random words
-             idxs = random.sample(range(concept_count), 4)
+             idxs = random.sample(range(len(concepts)), 4)
              vecs = embeddings[idxs]
              void_candidate = np.mean(vecs, axis=0)
              boundary_concepts = [concepts[i] for i in idxs]
@@ -155,9 +189,9 @@ def main():
     probe = void_candidate.copy()
     trajectory = []
 
-    for t in range(ITERATIONS):
+    for t in range(iterations):
         # Find nearest human concept
-        dists = scipy.spatial.distance.cdist([probe], embeddings, metric='cosine')[0]
+        dists = scipy_distance.cdist([probe], embeddings, metric='cosine')[0]
         nearest_idx = np.argmin(dists)
         nearest_vec = embeddings[nearest_idx]
         nearest_dist = dists[nearest_idx]
@@ -218,6 +252,32 @@ def main():
     }
 
     print(json.dumps(output, indent=2))
+    return output
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="OMEGA Point scanner")
+    parser.add_argument("--self-check", action="store_true", help="Print runtime dependency check JSON and exit")
+    parser.add_argument("--strict", action="store_true", help="Use with --self-check; exit non-zero if prerequisites are missing")
+    parser.add_argument("--quick-run", action="store_true", help="Run with smaller values for faster smoke testing")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    if args.self_check:
+        report = runtime_self_check()
+        print(json.dumps(report, indent=2))
+        if args.strict and not report["ready"]:
+            sys.exit(1)
+        return
+
+    if args.quick_run:
+        run_omega_point(num_concepts=256, iterations=20, seed=args.seed)
+    else:
+        run_omega_point(seed=args.seed)
 
 if __name__ == "__main__":
     main()
