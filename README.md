@@ -1,4 +1,4 @@
-# Runtime Evolutionary Self-Correction via AST-Guided Grammar Induction
+# Runtime Self-Correction via AST-Guided Grammar Induction
 
 A single-file recursive self-improvement engine that evolves Python programs through AST analysis and statistical grammar learning (EDA).
 
