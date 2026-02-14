@@ -5,18 +5,25 @@ import torch
 import json
 import random
 import sys
+import os
 
 # Constants
-MODEL_NAME = 'all-MiniLM-L6-v2'
-WORD_LIST_FILE = 'google-10000-english-no-swears.txt'
-NUM_CONCEPTS = 2000
+MODEL_NAME = os.getenv('OMEGA_POINT_MODEL', 'all-MiniLM-L6-v2')
+WORD_LIST_FILE = os.getenv('OMEGA_POINT_WORD_LIST', 'google-10000-english-no-swears.txt')
+NUM_CONCEPTS = int(os.getenv('OMEGA_POINT_NUM_CONCEPTS', '2000'))
 LOOP_SIZE = 4
 LOOP_DIST_THRESHOLD = 0.6
 VOID_DIST_THRESHOLD = 0.4
-ITERATIONS = 100
-EPSILON = 0.05
+ITERATIONS = int(os.getenv('OMEGA_POINT_ITERATIONS', '100'))
+EPSILON = float(os.getenv('OMEGA_POINT_EPSILON', '0.05'))
+MAX_ATTEMPTS = int(os.getenv('OMEGA_POINT_MAX_ATTEMPTS', '1000'))
+SEED = os.getenv('OMEGA_POINT_SEED')
 
 def main():
+    if SEED is not None:
+        random.seed(int(SEED))
+        np.random.seed(int(SEED))
+
     # Phase 1: Manifold Mapping
     print("Phase 1: Manifold Mapping...", file=sys.stderr)
     try:
@@ -59,14 +66,16 @@ def main():
     boundary_concepts = []
 
     # Try multiple times to find a loop
-    for attempt in range(1000):
+    concept_count = len(concepts)
+
+    for attempt in range(MAX_ATTEMPTS):
         # Pick 4 random indices
         # We need a chain: A -> B -> C -> D -> A with dist > 0.6
         # Random sampling is inefficient for this specific constraint.
         # Let's build it step by step.
 
         chain = []
-        current_idx = random.randint(0, NUM_CONCEPTS - 1)
+        current_idx = random.randint(0, concept_count - 1)
         chain.append(current_idx)
 
         failed = False
@@ -123,7 +132,7 @@ def main():
                 break
 
     if void_candidate is None:
-        print("Failed to find a void in 1000 attempts. Relaxing constraints or retrying...", file=sys.stderr)
+        print(f"Failed to find a void in {MAX_ATTEMPTS} attempts. Relaxing constraints or retrying...", file=sys.stderr)
         # Fallback: Just pick a random point far from everything?
         # Or just take the best one found.
         # For the sake of the exercise, let's just picking a random centroid of 4 random far-apart words
@@ -136,7 +145,7 @@ def main():
              boundary_concepts = [concepts[i] for i in chain]
         else:
              # Just pick 4 random words
-             idxs = random.sample(range(NUM_CONCEPTS), 4)
+             idxs = random.sample(range(concept_count), 4)
              vecs = embeddings[idxs]
              void_candidate = np.mean(vecs, axis=0)
              boundary_concepts = [concepts[i] for i in idxs]
