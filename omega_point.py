@@ -6,14 +6,16 @@ import sys
 from pathlib import Path
 
 # Constants
-MODEL_NAME = 'all-MiniLM-L6-v2'
-WORD_LIST_FILE = 'google-10000-english-no-swears.txt'
-NUM_CONCEPTS = 2000
+MODEL_NAME = os.getenv('OMEGA_POINT_MODEL', 'all-MiniLM-L6-v2')
+WORD_LIST_FILE = os.getenv('OMEGA_POINT_WORD_LIST', 'google-10000-english-no-swears.txt')
+NUM_CONCEPTS = int(os.getenv('OMEGA_POINT_NUM_CONCEPTS', '2000'))
 LOOP_SIZE = 4
 LOOP_DIST_THRESHOLD = 0.6
 VOID_DIST_THRESHOLD = 0.4
-ITERATIONS = 100
-EPSILON = 0.05
+ITERATIONS = int(os.getenv('OMEGA_POINT_ITERATIONS', '100'))
+EPSILON = float(os.getenv('OMEGA_POINT_EPSILON', '0.05'))
+MAX_ATTEMPTS = int(os.getenv('OMEGA_POINT_MAX_ATTEMPTS', '1000'))
+SEED = os.getenv('OMEGA_POINT_SEED')
 
 
 def runtime_self_check():
@@ -98,7 +100,9 @@ def run_omega_point(num_concepts=NUM_CONCEPTS, iterations=ITERATIONS, seed=None)
     boundary_concepts = []
 
     # Try multiple times to find a loop
-    for attempt in range(1000):
+    concept_count = len(concepts)
+
+    for attempt in range(MAX_ATTEMPTS):
         # Pick 4 random indices
         # We need a chain: A -> B -> C -> D -> A with dist > 0.6
         # Random sampling is inefficient for this specific constraint.
@@ -162,7 +166,7 @@ def run_omega_point(num_concepts=NUM_CONCEPTS, iterations=ITERATIONS, seed=None)
                 break
 
     if void_candidate is None:
-        print("Failed to find a void in 1000 attempts. Relaxing constraints or retrying...", file=sys.stderr)
+        print(f"Failed to find a void in {MAX_ATTEMPTS} attempts. Relaxing constraints or retrying...", file=sys.stderr)
         # Fallback: Just pick a random point far from everything?
         # Or just take the best one found.
         # For the sake of the exercise, let's just picking a random centroid of 4 random far-apart words
