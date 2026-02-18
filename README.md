@@ -1,8 +1,8 @@
-# Runtime Self-Correction Experiment
+# ast-grammar-induction-prototype
 
 > **Research Note**: This is a single-file recursive self-improvement engine. It is highly fragile and tends to converge on trivial solutions or collapse into syntax errors. It is an exploration of whether statistical grammar learning can rescue a random search process.
 
-## AST-Guided Grammar Induction (Experimental)
+## AST-Guided Grammar Induction Prototype (Experimental)
 
 This repository contains a prototype for an Estimation of Distribution Algorithm (EDA) that operates directly on Python Abstract Syntax Trees (ASTs). The objective is to see if a system can autonomously refine its own mutation distributions based on limited "success" in a simulator (ARC Gymnasium).
 
@@ -57,7 +57,7 @@ If referencing this experiment on recursive self-improvement fragility:
   author = {Kwag, Sunghun},
   title = {AST-Guided Grammar Induction: An Experiment in Fragile RSI},
   year = {2025},
-  url = {https://github.com/sunghunkwag/Runtime-Evolutionary-Self-Correction-via-AST-Guided-Grammar-Induction}
+  url = {https://github.com/sunghunkwag/ast-grammar-induction-prototype}
 }
 ```
 
